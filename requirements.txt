@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+datasets
+pandas
+huggingface_hub
