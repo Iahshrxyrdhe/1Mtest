@@ -1,15 +1,12 @@
 from fastapi import FastAPI, Query
 from datasets import load_dataset
-import pandas as pd
 import os
 
 app = FastAPI()
 
-# Hugging Face Repo ID (Apna wala dalo)
 DATASET_REPO = "tfqdeadlo/Test"
 HF_TOKEN = os.getenv("HF_TOKEN")
 
-# Data load (Streaming mode memory nahi khayega)
 ds = load_dataset(DATASET_REPO, split="train", streaming=True, token=HF_TOKEN)
 
 @app.get("/")
@@ -20,25 +17,27 @@ def home():
 def search(q: str = Query(..., min_length=2)):
     results = []
     search_query = q.lower()
-    
-    # 10,000 rows ka batch check karega speed ke liye
-    for batch in ds.iter(batch_size=10000):
-        df = pd.DataFrame(batch)
-        
-        # In columns mein search karega (Name, Phone, Aadhaar, Passport)
-        mask = (
-            df['name'].str.contains(search_query, case=False, na=False) |
-            df['phoneNumber'].astype(str).str.contains(search_query, na=False) |
-            df['aadharNumber'].astype(str).str.contains(search_query, na=False) |
-            df['passportNumber'].str.contains(search_query, case=False, na=False)
-        )
-        
-        filtered_df = df[mask]
-        if not filtered_df.empty:
-            results.extend(filtered_df.to_dict(orient='records'))
-            
-        # Top 15 results milte hi rok dega (Taki API slow na ho)
-        if len(results) >= 15:
-            break
-            
-    return {"data": results}
+
+    try:
+        for item in ds:
+            # Safe field access
+            name = str(item.get("name", "")).lower()
+            phone = str(item.get("phoneNumber", ""))
+            aadhar = str(item.get("aadharNumber", ""))
+            passport = str(item.get("passportNumber", "")).lower()
+
+            if (
+                search_query in name or
+                search_query in phone or
+                search_query in aadhar or
+                search_query in passport
+            ):
+                results.append(item)
+
+            if len(results) >= 15:
+                break
+
+        return {"data": results}
+
+    except Exception as e:
+        return {"error": str(e)}
