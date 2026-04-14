@@ -5,32 +5,29 @@ from fastapi import FastAPI, Query
 app = FastAPI()
 
 # --- CONFIG ---
-# Direct 'download' link use kar rahe hain jo DuckDB ke liye best hai
-DATA_PATH = "https://huggingface.co/datasets/tfqdeadlo/Test/data.parquet"
-HF_TOKEN = os.getenv("HF_TOKEN")
+# MotherDuck token Render ke 'Environment Variables' mein add kar dena
+MD_TOKEN = os.getenv("MOTHERDUCK_TOKEN")
+
+# Naya verified path
+DATA_PATH = "https://huggingface.co/datasets/tfqdeadlo/Bom/resolve/main/data.parquet"
 
 @app.get("/")
 def home():
-    return {"status": "DuckDB Live", "mode": "Streaming"}
+    return {"status": "Engine Live", "dataset": "Bom_476MB", "message": "Ready to search!"}
 
 @app.get("/search")
 def search(q: str = Query(..., min_length=3)):
-    con = duckdb.connect()
     try:
-        con.execute("INSTALL httpfs; LOAD httpfs;")
+        # MotherDuck cloud connection
+        con = duckdb.connect(f"md:?motherduck_token={MD_TOKEN}")
         
-        # Token ko headers mein set karne ka sabse stable method for Render
-        if HF_TOKEN:
-            # Purana setting remove karke fresh set karte hain
-            con.execute(f"SET http_keep_alive=false;") 
-            con.execute(f"SET http_headers = 'Authorization: Bearer {HF_TOKEN}';")
-
-        # Query
+        # Optimized query for large Parquet
+        # Column names (name, phoneNumber) apne data ke hisaab se check kar lena
         query = f"""
             SELECT * FROM read_parquet('{DATA_PATH}') 
-            WHERE name ILIKE '%{q}%' 
+            WHERE CAST(name AS VARCHAR) ILIKE '%{q}%' 
             OR CAST(phoneNumber AS VARCHAR) LIKE '%{q}%'
-            LIMIT 20
+            LIMIT 50
         """
         
         df = con.execute(query).df()
@@ -39,12 +36,7 @@ def search(q: str = Query(..., min_length=3)):
         return {"success": True, "count": len(results), "data": results}
         
     except Exception as e:
-        error_msg = str(e)
-        # Agar Magic Bytes error abhi bhi aaye, toh link mein issue ho sakta hai
-        return {
-            "success": False, 
-            "error": error_msg,
-            "note": "If magic bytes error persists, try making the HF repo PUBLIC to test."
-        }
+        return {"success": False, "error": str(e)}
     finally:
-        con.close()
+        if 'con' in locals():
+            con.close()
