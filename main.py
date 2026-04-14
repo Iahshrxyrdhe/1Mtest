@@ -14,24 +14,25 @@ app.add_middleware(
 
 # --- CONFIG ---
 MD_TOKEN = os.getenv("MOTHERDUCK_TOKEN")
+# Nayi wali repo ka path
 DATA_PATH = "https://huggingface.co/datasets/tfqdeadlo/Bom/resolve/main/data.parquet"
 
 @app.get("/")
 def home():
-    return {"status": "HTTP Bridge Active", "info": "No DuckDB library used"}
+    return {"status": "Bridge Online", "method": "HTTP-Only"}
 
 @app.get("/search")
 def search(q: str = Query(..., min_length=3)):
     try:
-        # MotherDuck v0 SQL Endpoint (Standard for simple requests)
-        url = "https://api.motherduck.com/v0/sql"
+        # MotherDuck API Endpoint (v1/sql)
+        url = "https://api.motherduck.com/v1/sql"
         
         headers = {
             "Authorization": f"Bearer {MD_TOKEN}",
             "Content-Type": "application/json"
         }
         
-        # Casting names and numbers to string for searching
+        # Simple SQL Query
         sql_query = f"""
             SELECT * FROM read_parquet('{DATA_PATH}') 
             WHERE CAST(name AS VARCHAR) ILIKE '%{q}%' 
@@ -39,32 +40,30 @@ def search(q: str = Query(..., min_length=3)):
             LIMIT 50
         """
         
+        # Request payload
         payload = {"query": sql_query}
         
+        # Sending request to MotherDuck
         response = requests.post(url, headers=headers, json=payload)
         
         if response.status_code != 200:
-            return {
-                "success": False, 
-                "error": f"MD Error {response.status_code}",
-                "details": response.text
-            }
+            return {"success": False, "error": f"MD API Error {response.status_code}", "msg": response.text}
 
         res_json = response.json()
         
-        # MotherDuck response structure: rows normally directly inside result or data
-        # Let's handle both common API formats
-        data_block = res_json.get("result", res_json.get("data", {}))
-        rows = data_block.get("rows", [])
+        # Parsing: MotherDuck usually returns data in result set
+        # Agar structure 'data' ke andar 'rows' hai:
+        rows = res_json.get("data", {}).get("rows", [])
         
         return {
             "success": True, 
+            "query": q,
             "count": len(rows), 
             "data": rows
         }
             
     except Exception as e:
-        return {"success": False, "error": f"Python Exception: {str(e)}"}
+        return {"success": False, "error": str(e)}
 
 if __name__ == "__main__":
     import uvicorn
