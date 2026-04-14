@@ -4,36 +4,30 @@ from fastapi import FastAPI, Query
 
 app = FastAPI()
 
-# --- CONFIGURATION ---
-DATA_PATH = "https://huggingface.co/datasets/tfqdeadlo/Test/resolve/main/data.parquet"
+# --- CONFIG ---
+# Hum token ko sidha URL mein add karenge as a parameter
 HF_TOKEN = os.getenv("HF_TOKEN")
+BASE_URL = "https://huggingface.co/datasets/tfqdeadlo/Test/resolve/main/data.parquet"
+
+# Agar token hai toh URL ke aage jod do, varna simple rehne do
+if HF_TOKEN:
+    DATA_PATH = f"{BASE_URL}?token={HF_TOKEN}"
+else:
+    DATA_PATH = BASE_URL
 
 @app.get("/")
 def home():
-    return {
-        "status": "DuckDB Engine Live",
-        "dataset": "tfqdeadlo/Test",
-        "mode": "Direct_Parquet_Streaming"
-    }
+    return {"status": "DuckDB Engine Live", "mode": "Direct_Link_Streaming"}
 
 @app.get("/search")
 def search(q: str = Query(..., min_length=3)):
     con = duckdb.connect()
     try:
-        # 1. Extensions load karo
+        # Extensions load karo
         con.execute("INSTALL httpfs; LOAD httpfs;")
         
-        # 2. Authentication (Naya Secret Method)
-        if HF_TOKEN:
-            try:
-                # DuckDB v0.10.0+ ke liye naya method
-                con.execute(f"CREATE OR REPLACE SECRET (TYPE HTTP, TOKEN '{HF_TOKEN}');")
-            except:
-                # Purane versions ke liye fallback
-                con.execute(f"SET http_headers = 'Authorization: Bearer {HF_TOKEN}';")
-
-        # 3. Query Execution
-        # ILIKE use kiya hai taaki Search Case-Insensitive ho (Bhai = bhai)
+        # Simple Query: Bina kisi header setting ke
+        # ILIKE search ko case-insensitive banata hai
         query = f"""
             SELECT * FROM read_parquet('{DATA_PATH}') 
             WHERE name ILIKE '%{q}%' 
