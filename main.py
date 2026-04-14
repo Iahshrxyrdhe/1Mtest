@@ -1,5 +1,5 @@
 import os
-import duckdb
+import requests
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -18,41 +18,53 @@ DATA_PATH = "https://huggingface.co/datasets/tfqdeadlo/Bom/resolve/main/data.par
 
 @app.get("/")
 def home():
-    return {"status": "Engine Ready", "mode": "Native DuckDB"}
+    return {"status": "HTTP Bridge Active", "info": "No DuckDB library used"}
 
 @app.get("/search")
 def search(q: str = Query(..., min_length=3)):
-    con = None
     try:
-        # MotherDuck Native Connection
-        # Isse HTTP 404 ka chakkar hi khatam ho jayega
-        con = duckdb.connect(f"md:?motherduck_token={MD_TOKEN}")
+        # MotherDuck v0 SQL Endpoint (Standard for simple requests)
+        url = "https://api.motherduck.com/v0/sql"
         
-        query = f"""
+        headers = {
+            "Authorization": f"Bearer {MD_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        
+        # Casting names and numbers to string for searching
+        sql_query = f"""
             SELECT * FROM read_parquet('{DATA_PATH}') 
             WHERE CAST(name AS VARCHAR) ILIKE '%{q}%' 
             OR CAST(phoneNumber AS VARCHAR) LIKE '%{q}%'
             LIMIT 50
         """
         
-        # Result fetch karna
-        res = con.execute(query).fetchall()
+        payload = {"query": sql_query}
         
-        # Column names nikalna
-        columns = [desc[0] for desc in con.description]
-        results = [dict(zip(columns, row)) for row in res]
+        response = requests.post(url, headers=headers, json=payload)
+        
+        if response.status_code != 200:
+            return {
+                "success": False, 
+                "error": f"MD Error {response.status_code}",
+                "details": response.text
+            }
+
+        res_json = response.json()
+        
+        # MotherDuck response structure: rows normally directly inside result or data
+        # Let's handle both common API formats
+        data_block = res_json.get("result", res_json.get("data", {}))
+        rows = data_block.get("rows", [])
         
         return {
-            "success": True,
-            "count": len(results),
-            "data": results
+            "success": True, 
+            "count": len(rows), 
+            "data": rows
         }
             
     except Exception as e:
-        return {"success": False, "error": str(e)}
-    finally:
-        if con:
-            con.close()
+        return {"success": False, "error": f"Python Exception: {str(e)}"}
 
 if __name__ == "__main__":
     import uvicorn
