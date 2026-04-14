@@ -3,4 +3,3 @@ uvicorn
 duckdb
 pandas
 pyarrow
-fsspec
