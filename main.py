@@ -1,89 +1,55 @@
 import os
-import sqlite3
-import pandas as pd
-from fastapi import FastAPI, Query, BackgroundTasks
-from datasets import load_dataset
-from huggingface_hub import login
+import duckdb
+from fastapi import FastAPI, Query
 
 app = FastAPI()
 
-# --- CONFIGURATION ---
-DATASET_REPO = "tfqdeadlo/Test" 
+# --- CONFIG ---
+# Screenshot ke hisab se direct parquet link
+DATA_PATH = "https://huggingface.co/datasets/tfqdeadlo/Test/resolve/main/data.parquet"
 HF_TOKEN = os.getenv("HF_TOKEN")
-DB_PATH = "data_cache.db"
-
-def create_fast_index():
-    if os.path.exists(DB_PATH):
-        print("✅ Database already exists.")
-        return
-
-    print("⏳ Background Indexing Started...")
-    try:
-        if not HF_TOKEN:
-            print("❌ ERROR: HF_TOKEN missing!")
-            return
-
-        login(token=HF_TOKEN)
-        ds = load_dataset(DATASET_REPO, split="train", streaming=True, token=HF_TOKEN)
-
-        conn = sqlite3.connect(DB_PATH)
-        
-        # Batch processing to keep RAM under 512MB
-        for batch in ds.iter(batch_size=50000):
-            df = pd.DataFrame(batch)
-            df.to_sql('users', conn, if_exists='append', index=False)
-            print("📦 Batch added to SQLite...")
-
-        # Speed booster indexes
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_name ON users(name)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_phone ON users(phoneNumber)")
-        conn.close()
-        print("✅ Indexing Complete! Search is now super fast.")
-    except Exception as e:
-        print(f"❌ Indexing Error: {e}")
-
-@app.on_event("startup")
-async def startup_event():
-    # Server ko turant start karne ke liye hum indexing ko 
-    # startup mein nahi balki pehle request par ya background mein chalayenge
-    print("🚀 Server is starting... use /init to build DB if not exists")
 
 @app.get("/")
 def home():
-    db_status = "Ready" if os.path.exists(DB_PATH) else "Not Ready (Go to /init)"
-    return {
-        "status": "Online",
-        "database": db_status,
-        "usage": "/search?q=YourQuery",
-        "setup": "/init (Run this if database is not ready)"
-    }
-
-@app.get("/init")
-def init_db(background_tasks: BackgroundTasks):
-    if os.path.exists(DB_PATH):
-        return {"message": "Database already exists!"}
-    background_tasks.add_task(create_fast_index)
-    return {"message": "Indexing started in background. Please wait 2-5 minutes."}
+    return {"status": "DuckDB Live", "dataset": "tfqdeadlo/Test", "file": "data.parquet"}
 
 @app.get("/search")
-def search(q: str = Query(..., min_length=2)):
-    if not os.path.exists(DB_PATH):
-        return {"error": "Database not ready. Run /init first and wait a few minutes."}
+def search(q: str = Query(..., min_length=3)):
+    try:
+        # 1. DuckDB instance initialize karo
+        con = duckdb.connect()
+        
+        # 2. Remote reading extensions load karo
+        con.execute("INSTALL httpfs; LOAD httpfs;")
+        
+        # 3. Agar repo private hai (ya token required hai)
+        if HF_TOKEN:
+            con.execute(f"SET http_headers = '{{ \"Authorization\": \"Bearer {HF_TOKEN}\" }}';")
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    search_term = f"%{q}%"
-    
-    query = """
-    SELECT * FROM users 
-    WHERE name LIKE ? 
-    OR phoneNumber LIKE ? 
-    OR aadharNumber LIKE ? 
-    LIMIT 20
-    """
-    
-    cursor = conn.execute(query, (search_term, search_term, search_term))
-    results = [dict(row) for row in cursor.fetchall()]
-    conn.close()
-    
-    return {"count": len(results), "data": results}
+        # 4. SQL Query (DuckDB sidha Parquet file ko table ki tarah read karega)
+        # Note: 'name' aur 'phoneNumber' columns tere data mein hone chahiye
+        query = f"""
+            SELECT * FROM read_parquet('{DATA_PATH}') 
+            WHERE name LIKE '%{q}%' 
+            OR CAST(phoneNumber AS VARCHAR) LIKE '%{q}%'
+            LIMIT 20
+        """
+        
+        # 5. Pandas Dataframe ke zariye result nikalo
+        df = con.execute(query).df()
+        results = df.to_dict(orient="records")
+        
+        return {
+            "success": True,
+            "count": len(results),
+            "data": results
+        }
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+if __name__ == "__main__":
+    import uvicorn
+    # Render port setting
+    port = int(os.environ.get("PORT", 10000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
