@@ -1,5 +1,5 @@
 import os
-import duckdb
+import requests
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -18,38 +18,59 @@ DATA_PATH = "https://huggingface.co/datasets/tfqdeadlo/Bom/resolve/main/data.par
 
 @app.get("/")
 def home():
-    return {"status": "Native Engine Active", "version": "DuckDB-0.10.2"}
+    return {"status": "HTTP Bridge Active", "engine": "MotherDuck Cloud"}
 
 @app.get("/search")
 def search(q: str = Query(..., min_length=3)):
-    con = None
     try:
-        # MotherDuck Native Connection
-        # Ye version stable hai aur MotherDuck ko connect kar lega
-        con = duckdb.connect(f"md:?motherduck_token={MD_TOKEN}")
+        # MotherDuck Statements API Endpoint
+        url = "https://api.motherduck.com/v1/statements"
         
-        query = f"""
+        headers = {
+            "Authorization": f"Bearer {MD_TOKEN}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        
+        # SQL Query
+        sql = f"""
             SELECT * FROM read_parquet('{DATA_PATH}') 
             WHERE CAST(name AS VARCHAR) ILIKE '%{q}%' 
             OR CAST(phoneNumber AS VARCHAR) LIKE '%{q}%'
             LIMIT 50
         """
         
-        # Result fetching
-        df = con.execute(query).df()
-        results = df.to_dict(orient="records")
+        # MotherDuck specific payload format
+        payload = {
+            "statement": sql,
+            "queryMode": "REGULAR"
+        }
+        
+        response = requests.post(url, headers=headers, json=payload)
+        
+        if response.status_code != 200:
+            return {
+                "success": False, 
+                "error": f"MD API Error {response.status_code}",
+                "details": response.text
+            }
+
+        res_json = response.json()
+        
+        # Parsing MotherDuck's nested response
+        # Structure: result -> data -> rows
+        result_obj = res_json.get("result", {})
+        data_obj = result_obj.get("data", {})
+        rows = data_obj.get("rows", [])
         
         return {
             "success": True, 
-            "count": len(results), 
-            "data": results
+            "count": len(rows), 
+            "data": rows
         }
             
     except Exception as e:
-        return {"success": False, "error": f"Native Error: {str(e)}"}
-    finally:
-        if con:
-            con.close()
+        return {"success": False, "error": f"Internal Error: {str(e)}"}
 
 if __name__ == "__main__":
     import uvicorn
