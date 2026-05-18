@@ -20,7 +20,7 @@ import logging
 import yt_dlp
 import urllib.request
 import random
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -31,18 +31,16 @@ TOKEN_PART1 = "8919342904:"
 TOKEN_PART2 = "AAF5UdlNBRpW0gZloN2vDClCWBqdITn9afo"
 BOT_TOKEN = TOKEN_PART1 + TOKEN_PART2
 
-# 🌐 FUNCTION: Databay GitHub se direct fresh SOCKS5 proxies load karna (No-Crash Engine)
+# 🌐 FUNCTION: Databay GitHub se direct fresh SOCKS5 proxies load karna
 def load_socks5_pool():
     url = "https://raw.githubusercontent.com/databay-labs/free-proxy-list/master/socks5.txt"
     try:
-        # Browser ki tarah acting karne ke liye headers (Anti-Block)
         req = urllib.request.Request(
             url, 
             headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         )
         with urllib.request.urlopen(req, timeout=8) as response:
             html = response.read().decode('utf-8')
-            # Lines ko split karke khali spaces saaf karna
             proxies = [line.strip() for line in html.splitlines() if line.strip()]
             if proxies:
                 logger.info(f"✅ Successfully loaded {len(proxies)} fresh SOCKS5 proxies from Databay!")
@@ -53,8 +51,8 @@ def load_socks5_pool():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "🚀 **Yt Downloader Engine V26 (Smart SOCKS5 Pool) Active!**\n\n"
-        "Link bhejo bhai. Ab dead proxies automatic skip hongi aur live proxy par fast download hoga!"
+        "🚀 **Yt Downloader Engine V27 (Direct Link Mode) Active!**\n\n"
+        "Link bhejo bhai. Ab bina buttons ke direct clickable download links caption mein milenge!"
     )
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -63,24 +61,19 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if "youtube.com" in url or "youtu.be" in url:
         status = await update.message.reply_text("⏳ Databay GitHub pool se live SOCKS5 proxy connect kar raha hoon...")
         
-        # Fresh pool fetch karo
         proxy_pool = load_socks5_pool()
         
         if not proxy_pool:
-            # Fallback agar pool fetch na ho paye kisi vajah se
             await status.edit_text("⚠️ Proxy pool load nahi ho paya, direct line se try kar raha hoon...")
-            # 10 random fresh elements list fail hone par shuffle try ke liye
             proxy_pool = [None]
         else:
-            # Pool ko random shuffle kar do taaki har user ko alag proxy mile
             random.shuffle(proxy_pool)
-            # Sirf top 15 proxies test karenge fast processing ke liye
             proxy_pool = proxy_pool[:15]
 
         info = None
         extracted_successfully = False
 
-        # 🔥 SMART LOOP: Ek ek karke proxy check karega, jo fast chalegi usse link nikalega
+        # SMART LOOP: Proxy check cycle
         for i, raw_proxy in enumerate(proxy_pool):
             proxy_url = f"socks5://{raw_proxy}" if raw_proxy else None
             
@@ -91,7 +84,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 ydl_opts = {
                     'quiet': True, 
                     'no_warnings': True,
-                    'socket_timeout': 4, # 👈 Sabse zaroori: Sirf 4 second wait karega, slow proxy ko turant chhod dega!
+                    'socket_timeout': 4, 
                     'retries': 1,
                     'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
                     'nocheckcertificate': True,
@@ -110,12 +103,11 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     info = ydl.extract_info(url, download=False)
                     if info:
                         extracted_successfully = True
-                        break # 🔥 Link mil gaya! Loop se baahar nikal jao
-            except Exception as proxy_error:
-                logger.warning(f"Node {raw_proxy} failed or timed out. Trying next...")
-                continue # Agar ye proxy fail hui ya slow hui, toh bina ruke agli par jao
+                        break 
+            except Exception:
+                continue
 
-        # 🔥 RESPONSE BUILDER
+        # 🔥 RESPONSE BUILDER (Direct Link in Caption)
         if extracted_successfully and info:
             try:
                 video_title = info.get('title', 'Video File')
@@ -138,31 +130,39 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 if not link_720p and not link_360p:
                     link_720p = fallback_url
 
-                keyboard = []
+                # Direct HTML Hyperlinks build kar rahe hain text ke liye
+                links_text = ""
                 if link_720p:
-                    keyboard.append([InlineKeyboardButton("🎬 Download Best Video (HD)", url=link_720p)])
+                    links_text += f"🔹 <a href='{link_720p}'>👉 CLICK HERE TO DOWNLOAD (HD Quality) 👈</a>\n\n"
                 if link_360p:
-                    keyboard.append([InlineKeyboardButton("🎥 Download 360p SD", url=link_360p)])
-
-                reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
+                    links_text += f"🔹 <a href='{link_360p}'>👉 CLICK HERE TO DOWNLOAD (360p SD) 👈</a>\n\n"
                 
+                if not links_text and fallback_url:
+                    links_text += f"🔹 <a href='{fallback_url}'>👉 CLICK HERE TO DOWNLOAD (Best Quality) 👈</a>\n\n"
+
+                # Ekdam easy and clear downloading guide instructions ke sath
                 guide_caption = (
-                    f"🎯 **Video Title:** {video_title}\n\n"
-                    f"📖 **DOWNLOAD KAISE KAREIN?**\n"
-                    f"1. Neeche diye button par click karein.\n"
-                    f"2. Play hote hi long press karke save kar lein! 🚀"
+                    f"🎯 <b>Video Title:</b> {video_title}\n\n"
+                    f"👇 <b>DOWNLOAD LINKS:</b>\n"
+                    f"{links_text}"
+                    f"📖 <b>DOWNLOAD KAISE KAREIN? (EASY GUIDE):</b>\n"
+                    f"1️⃣ Upar diye gaye blue color ke <b>DOWNLOAD LINK</b> text par click karein.\n"
+                    f"2️⃣ Aapke browser (Chrome) mein video play hona start ho jayegi.\n"
+                    f"3️⃣ Video ke upar <b>Long Press (thodi der dabakar rakhein)</b> aur <b>'Download Video'</b> ka option aayega, uspar click karke save kar lein! 🚀\n\n"
+                    f"<i>Tip: Agar long press nahi chal raha, toh video ke niche right side mein 3-dots (...) par click karke Download daba dein.</i>"
                 )
 
                 await status.delete()
 
+                # Parse mode HTML use kiya hai taaki links sahi se hyperlink ban sakein
                 if thumbnail_url:
-                    await update.message.reply_photo(photo=thumbnail_url, caption=guide_caption, reply_markup=reply_markup)
+                    await update.message.reply_photo(photo=thumbnail_url, caption=guide_caption, parse_mode="HTML")
                 else:
-                    await update.message.reply_text(text=guide_caption, reply_markup=reply_markup, disable_web_page_preview=True)
+                    await update.message.reply_text(text=guide_caption, parse_mode="HTML", disable_web_page_preview=True)
             except Exception as send_error:
-                await update.message.reply_text(f"❌ Technical error while sending buttons: {send_error}")
+                await update.message.reply_text(f"❌ Technical error while sending links: {send_error}")
         else:
-            await status.edit_text("❌ Saari tested proxies blocked ya slow milin bahi. Ek baar fir se link send karo naye pool ke liye!")
+            await status.edit_text("❌ Saari tested proxies blocked mili bhai. Naye pool ke liye ek baar fir se link bhej do!")
     else:
         await update.message.reply_text("Bhai, sahi YouTube video link bhejo!")
 
@@ -171,7 +171,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_video))
     
-    print("Bot is starting with Smart SOCKS5 Swapper Engine...")
+    print("Bot is starting with Direct Link Engine...")
     app.run_polling()
 
 if __name__ == "__main__":
