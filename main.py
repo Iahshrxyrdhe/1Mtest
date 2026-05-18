@@ -18,6 +18,7 @@ apscheduler.util.astimezone = fixed_astimezone
 
 import logging
 import yt_dlp
+import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -31,18 +32,27 @@ BOT_TOKEN = TOKEN_PART1 + TOKEN_PART2
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "🚀 **Yt Downloader Engine V14 (iOS Native Patch) Active!**\n\n"
-        "Link bhejo bhai. Ab bina cookies ke permanent processing hogi!"
+        "🚀 **Yt Downloader Engine V15 (API Cloud Proxy Node) Active!**\n\n"
+        "Link bhejo bhai. Ab bina cookies ke bypass tunnel se extraction hogi!"
     )
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     url = update.message.text
     
     if "youtube.com" in url or "youtu.be" in url:
-        status = await update.message.reply_text("⏳ iOS Native Nodes se secure data fetch ho raha hai...")
+        status = await update.message.reply_text("⏳ API Proxy tunnel se secure data fetch ho raha hai...")
         
+        # 🔗 INVIDIOUS INSTANCE BYPASS: Direct YT block todne ke liye proxy instance par routing
+        # Agar direct nahi chalta, toh hum link ko ek aise proxy domain par convert kar dete hain jise YT block nahi karta
+        video_id_match = re.search(r"(?:v=|\/)([a-zA-Z0-9_-]{11})", url)
+        if video_id_match:
+            video_id = video_id_match.group(1)
+            # Yahan hum reliable invidious node use kar rahe hain jo yt-dlp ko direct support karta hai
+            target_url = f"https://invidious.nerdvpn.de/watch?v={video_id}"
+        else:
+            target_url = url
+
         try:
-            # 🔥 PERMANENT BYPASS: Android/Web hata kar sirf iOS client force kiya hai, ispe sign-in block nahi aata
             ydl_opts = {
                 'quiet': True, 
                 'no_warnings': True,
@@ -51,18 +61,13 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 'format': 'best',
                 'extractor_args': {
                     'youtube': {
-                        'clients': ['ios'], # Sirf aur sirf iOS client block nahi hota
                         'skip': ['dash', 'hls']
                     }
-                },
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1',
-                    'Accept-Language': 'en-US,en;q=0.9'
                 }
             }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
+                info = ydl.extract_info(target_url, download=False)
                 video_title = info.get('title', 'Video File')
                 thumbnail_url = info.get('thumbnail') 
                 duration = info.get('duration', 0)
@@ -113,7 +118,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     f"🎯 **Video Title:** {video_title}\n\n"
                     f"📖 **DOWNLOAD KAISE KAREIN?**\n"
                     f"1. Upar diye gaye quality button par click karein.\n"
-                    f"2. Agar video browser mein direct play hone lage, toh us button par **Long Press (dabakar rakhein)** aur **'Download Link' / 'Save Link'** select karein. Background mein turant download shuru ho jayegi! 🚀"
+                    f"2. Agar video browser mein direct play hone lage, toh us button par **Long Press** aur **'Download Link'** select karein. Background mein turant download shuru ho jayegi! 🚀"
                 )
 
                 await status.delete()
@@ -141,7 +146,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         except Exception as e:
             logger.error(e)
             try:
-                await status.edit_text(f"❌ Extraction Error: {e}\n\nTip: Ek baar dubara link bhejein, GitHub server automatically IP badal lega.")
+                await status.edit_text(f"❌ Extraction Error: Node busy. Ek baar dubara link bhejein.")
             except Exception:
                 await update.message.reply_text(f"❌ Error Occurred: {e}")
     else:
@@ -152,7 +157,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_video))
     
-    print("Bot is starting with Pure iOS Native Emulation Engine...")
+    print("Bot is starting with Cloud Node Engine...")
     app.run_polling()
 
 if __name__ == "__main__":
