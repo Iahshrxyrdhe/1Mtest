@@ -30,24 +30,22 @@ TOKEN_PART1 = "8919342904:"
 TOKEN_PART2 = "AAF5UdlNBRpW0gZloN2vDClCWBqdITn9afo"
 BOT_TOKEN = TOKEN_PART1 + TOKEN_PART2
 
-# 🔑 SCRAPERAPI KEY: Apni ScraperAPI dashboard se copy ki hui key yahan paste karo
+# 🔑 SCRAPERAPI KEY: Apni ScraperAPI key yahan quotes ke andar daalna mat bhoolna bhai!
 SCRAPER_API_KEY = "85d4df19802f4fb311ddd179e352cc2f"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "🚀 **Yt Downloader Engine V18 (ScraperAPI Cloud Patch) Active!**\n\n"
-        "Link bhejo bhai. Ab direct secure rotation proxy se 100% extraction hogi!"
+        "🚀 **Yt Downloader Engine V19 (SSL Bypass Patch) Active!**\n\n"
+        "Link bhejo bhai. Ab bina kisi security jhanjhat ke extraction hogi!"
     )
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     url = update.message.text
     
     if "youtube.com" in url or "youtu.be" in url:
-        status = await update.message.reply_text("⏳ Secure proxy API tunnel active... Data extract ho raha hai...")
+        status = await update.message.reply_text("⏳ Secure tunnel active... Video links nikaale jaa rahe hain...")
         
-        # 🔥 SCRAPERAPI PROXY STRING GENERATOR
-        # Yeh line yt-dlp ke liye direct working format generate karegi
-        encoded_url = urllib.parse.quote_plus(url)
+        # 🔥 PROXY STRING
         proxy_string = f"http://scraperapi:{SCRAPER_API_KEY}@proxy-server.scraperapi.com:8001"
 
         try:
@@ -57,7 +55,8 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 'socket_timeout': 90,
                 'retries': 10,
                 'format': 'best',
-                'proxy': proxy_string, # 👈 Pure GitHub IP block ko bypass karne ka permanent hack
+                'proxy': proxy_string,
+                'nocheckcertificate': True, # 👈 🔥 CRITICAL FIX: Yeh line SSL certificate error ko hamesha ke liye khatam kar degi!
                 'extractor_args': {
                     'youtube': {
                         'clients': ['android', 'ios'],
@@ -131,7 +130,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         except Exception as e:
             logger.error(e)
             try:
-                await status.edit_text(f"❌ Extraction Error: {e}\n\nTip: Ek baar dubara try karein, IP rotate ho jayega.")
+                await status.edit_text(f"❌ Extraction Error: {e}\n\nTip: Ek baar dubara try karein.")
             except Exception:
                 await update.message.reply_text(f"❌ Error Occurred: {e}")
     else:
@@ -142,7 +141,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_video))
     
-    print("Bot is starting with ScraperAPI Tunnel Engine...")
+    print("Bot is starting with SSL Fixed ScraperAPI Tunnel Engine...")
     app.run_polling()
 
 if __name__ == "__main__":
