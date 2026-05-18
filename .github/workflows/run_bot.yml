@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main, master ]
   schedule:
-    - cron: '0 */5 * * *' # Har 5 ghante mein automatic restart hoga taaki session live rahe
+    - cron: '0 */5 * * *'
 
 jobs:
   run-bot:
@@ -24,8 +24,5 @@ jobs:
         pip install -r requirements.txt
 
     - name: Run Bot Continuous
-      timeout-minutes: 340 # 5.5 ghante baad workflow safely agle schedule ke liye rukk jayega
-      env:
-        BOT_TOKEN: ${{ secrets.BOT_TOKEN }} # Aapka token yahan se code mein inject hoga
       run: |
         python main.py
