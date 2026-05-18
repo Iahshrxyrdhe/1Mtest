@@ -31,7 +31,7 @@ TOKEN_PART1 = "8919342904:"
 TOKEN_PART2 = "AAF5UdlNBRpW0gZloN2vDClCWBqdITn9afo"
 BOT_TOKEN = TOKEN_PART1 + TOKEN_PART2
 
-# 🌐 FUNCTION: Databay GitHub se direct fresh SOCKS5 proxies load karna
+# 🌐 FUNCTION: Databay GitHub se direct fresh SOCKS5 proxies load karna (No-Crash)
 def load_socks5_pool():
     url = "https://raw.githubusercontent.com/databay-labs/free-proxy-list/master/socks5.txt"
     try:
@@ -51,29 +51,30 @@ def load_socks5_pool():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "🚀 **Yt Downloader Engine V27 (Direct Link Mode) Active!**\n\n"
-        "Link bhejo bhai. Ab bina buttons ke direct clickable download links caption mein milenge!"
+        "🚀 **Yt Downloader Engine V28 (Universal Master Patch) Active!**\n\n"
+        "Link bhejo bhai. SOCKS5 Rotating Pool aur Universal Fallback Engine dono ek sath set hain!"
     )
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     url = update.message.text
     
     if "youtube.com" in url or "youtu.be" in url:
-        status = await update.message.reply_text("⏳ Databay GitHub pool se live SOCKS5 proxy connect kar raha hoon...")
+        status = await update.message.reply_text("⏳ Databay Pool se SOCKS5 node connect ho raha hai...")
         
+        # Fresh proxies load ho rahi hain
         proxy_pool = load_socks5_pool()
         
         if not proxy_pool:
-            await status.edit_text("⚠️ Proxy pool load nahi ho paya, direct line se try kar raha hoon...")
+            await status.edit_text("⚠️ Proxy pool busy, direct link extraction try kar raha hoon...")
             proxy_pool = [None]
         else:
             random.shuffle(proxy_pool)
-            proxy_pool = proxy_pool[:15]
+            proxy_pool = proxy_pool[:15] # Top 15 proxies test karenge fast cycle ke liye
 
         info = None
         extracted_successfully = False
 
-        # SMART LOOP: Proxy check cycle
+        # 🔥 SMART LOOP: Proxies ko fast cycle par test karna
         for i, raw_proxy in enumerate(proxy_pool):
             proxy_url = f"socks5://{raw_proxy}" if raw_proxy else None
             
@@ -84,7 +85,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 ydl_opts = {
                     'quiet': True, 
                     'no_warnings': True,
-                    'socket_timeout': 4, 
+                    'socket_timeout': 4, # Max 4 second wait karega slow proxy par
                     'retries': 1,
                     'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
                     'nocheckcertificate': True,
@@ -103,11 +104,11 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     info = ydl.extract_info(url, download=False)
                     if info:
                         extracted_successfully = True
-                        break 
+                        break # Link milte hi loop se bahar
             except Exception:
-                continue
+                continue # Fail hone par agla node check karega bina ruke
 
-        # 🔥 RESPONSE BUILDER (Direct Link in Caption)
+        # 🔥 RESPONSE BUILDER (Direct Hyperlinks + Universal Fallback Patch)
         if extracted_successfully and info:
             try:
                 video_title = info.get('title', 'Video File')
@@ -118,6 +119,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 link_360p = None
                 fallback_url = info.get('url')
 
+                # Pre-merged streams filter kar rahe hain
                 for f in formats:
                     if f.get('vcodec') != 'none' and f.get('acodec') != 'none':
                         raw_url = f.get('url')
@@ -127,20 +129,28 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                             elif f.get('height') == 720:
                                 link_720p = raw_url
 
-                if not link_720p and not link_360p:
-                    link_720p = fallback_url
-
-                # Direct HTML Hyperlinks build kar rahe hain text ke liye
+                # Links HTML syntax text build ho raha hai
                 links_text = ""
                 if link_720p:
                     links_text += f"🔹 <a href='{link_720p}'>👉 CLICK HERE TO DOWNLOAD (HD Quality) 👈</a>\n\n"
                 if link_360p:
                     links_text += f"🔹 <a href='{link_360p}'>👉 CLICK HERE TO DOWNLOAD (360p SD) 👈</a>\n\n"
                 
-                if not links_text and fallback_url:
-                    links_text += f"🔹 <a href='{fallback_url}'>👉 CLICK HERE TO DOWNLOAD (Best Quality) 👈</a>\n\n"
+                # 🛡️ THE UNIVERSAL FALLBACK INJECTION: Agar split format chupaya ho toh direct raw link do
+                if not link_720p and not link_360p:
+                    best_stream = fallback_url
+                    if not best_stream and formats:
+                        for fmt in reversed(formats):
+                            if fmt.get('url') and ('googlevideo.com' in fmt.get('url') or 'manifest' in fmt.get('url')):
+                                best_stream = fmt.get('url')
+                                break
+                    
+                    if best_stream:
+                        links_text += f"🔹 <a href='{best_stream}'>👉 CLICK HERE TO DOWNLOAD (Best Available Quality) 👈</a>\n\n"
+                    else:
+                        links_text += f"⚠️ <i>Is video ka format strict restricted mila bahi.</i>\n\n"
 
-                # Ekdam easy and clear downloading guide instructions ke sath
+                # Clean text structure user instructions ke sath
                 guide_caption = (
                     f"🎯 <b>Video Title:</b> {video_title}\n\n"
                     f"👇 <b>DOWNLOAD LINKS:</b>\n"
@@ -154,13 +164,13 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
                 await status.delete()
 
-                # Parse mode HTML use kiya hai taaki links sahi se hyperlink ban sakein
+                # Parse mode HTML se text hyperlinks click-ready ho jayenge
                 if thumbnail_url:
                     await update.message.reply_photo(photo=thumbnail_url, caption=guide_caption, parse_mode="HTML")
                 else:
                     await update.message.reply_text(text=guide_caption, parse_mode="HTML", disable_web_page_preview=True)
             except Exception as send_error:
-                await update.message.reply_text(f"❌ Technical error while sending links: {send_error}")
+                await update.message.reply_text(f"❌ Sending Link Error: {send_error}")
         else:
             await status.edit_text("❌ Saari tested proxies blocked mili bhai. Naye pool ke liye ek baar fir se link bhej do!")
     else:
@@ -171,7 +181,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_video))
     
-    print("Bot is starting with Direct Link Engine...")
+    print("Bot is starting with Universal Master Engine...")
     app.run_polling()
 
 if __name__ == "__main__":
