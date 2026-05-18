@@ -18,7 +18,7 @@ apscheduler.util.astimezone = fixed_astimezone
 
 import logging
 import yt_dlp
-import re
+import urllib.parse
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -30,30 +30,37 @@ TOKEN_PART1 = "8919342904:"
 TOKEN_PART2 = "AAF5UdlNBRpW0gZloN2vDClCWBqdITn9afo"
 BOT_TOKEN = TOKEN_PART1 + TOKEN_PART2
 
+# 🔑 SCRAPERAPI KEY: Apni ScraperAPI dashboard se copy ki hui key yahan paste karo
+SCRAPER_API_KEY = "85d4df19802f4fb311ddd179e352cc2f"
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "🚀 **Yt Downloader Engine V16 (No-Auth Cloud Patch) Active!**\n\n"
-        "Link bhejo bhai. Ab bina cookies aur bina block ke processing hogi!"
+        "🚀 **Yt Downloader Engine V18 (ScraperAPI Cloud Patch) Active!**\n\n"
+        "Link bhejo bhai. Ab direct secure rotation proxy se 100% extraction hogi!"
     )
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     url = update.message.text
     
     if "youtube.com" in url or "youtu.be" in url:
-        status = await update.message.reply_text("⏳ Processing URL via Secure Cloud Nodes...")
+        status = await update.message.reply_text("⏳ Secure proxy API tunnel active... Data extract ho raha hai...")
         
+        # 🔥 SCRAPERAPI PROXY STRING GENERATOR
+        # Yeh line yt-dlp ke liye direct working format generate karegi
+        encoded_url = urllib.parse.quote_plus(url)
+        proxy_string = f"http://scraperapi:{SCRAPER_API_KEY}@proxy-server.scraperapi.com:8001"
+
         try:
-            # 🔥 LATEST NO-COOKIES BYPASS METHOD
             ydl_opts = {
                 'quiet': True, 
                 'no_warnings': True,
-                'socket_timeout': 60,
+                'socket_timeout': 90,
                 'retries': 10,
-                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', # Sabse safe format jo jaldi extract ho ske
+                'format': 'best',
+                'proxy': proxy_string, # 👈 Pure GitHub IP block ko bypass karne ka permanent hack
                 'extractor_args': {
                     'youtube': {
-                        # Web clients ko poora block karke sirf lightweight embedded nodes force kiye hain
-                        'clients': ['tv', 'mweb', 'android_embed', 'ios'], 
+                        'clients': ['android', 'ios'],
                         'skip': ['dash', 'hls']
                     }
                 }
@@ -64,13 +71,46 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 video_title = info.get('title', 'Video File')
                 thumbnail_url = info.get('thumbnail') 
                 duration = info.get('duration', 0)
-                
-                # Direct best dynamic format direct link nikalne ke liye
-                direct_video_url = info.get('url')
+                formats = info.get('formats', [])
+
+                link_720p = None
+                link_360p = None
+                direct_audio_url = None
+
+                for f in formats:
+                    if f.get('vcodec') != 'none' and f.get('acodec') != 'none':
+                        raw_url = f.get('url')
+                        if raw_url:
+                            if f.get('height') == 360:
+                                link_360p = raw_url
+                            elif f.get('height') == 720:
+                                link_720p = raw_url
+                    
+                    if f.get('vcodec') == 'none' and f.get('acodec') != 'none':
+                        if f.get('ext') == 'm4a' or f.get('format_note') == 'low':
+                            raw_url = f.get('url')
+                            if raw_url:
+                                direct_audio_url = raw_url
+
+                if not link_720p and not link_360p:
+                    for f in reversed(formats):
+                        if f.get('vcodec') != 'none' and f.get('acodec') != 'none':
+                            raw_url = f.get('url')
+                            if raw_url:
+                                link_720p = raw_url
+                            break
 
                 keyboard = []
-                if direct_video_url:
-                    keyboard.append([InlineKeyboardButton("🎬 Direct Download Video", url=direct_video_url)])
+                if link_720p:
+                    keyboard.append([InlineKeyboardButton("🎬 Download 720p HD", url=link_720p)])
+                if link_360p:
+                    keyboard.append([InlineKeyboardButton("🎥 Download 360p SD", url=link_360p)])
+
+                send_audio_as_file = True
+                if direct_audio_url:
+                    if duration > 10800:
+                        keyboard.append([InlineKeyboardButton("🎵 Download Audio/MP3", url=direct_audio_url)])
+                        send_audio_as_file = False
 
                 reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
                 
@@ -78,7 +118,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     f"🎯 **Video Title:** {video_title}\n\n"
                     f"📖 **DOWNLOAD KAISE KAREIN?**\n"
                     f"1. Upar diye gaye button par click karein.\n"
-                    f"2. Agar video direct chalne lage, toh long press karke 'Download Video/Link' select karein! 🚀"
+                    f"2. Video chalne par long press karke save kar lein! 🚀"
                 )
 
                 await status.delete()
@@ -91,7 +131,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         except Exception as e:
             logger.error(e)
             try:
-                await status.edit_text(f"❌ Extraction Error: {e}\n\nTip: Ek baar dubara try karein.")
+                await status.edit_text(f"❌ Extraction Error: {e}\n\nTip: Ek baar dubara try karein, IP rotate ho jayega.")
             except Exception:
                 await update.message.reply_text(f"❌ Error Occurred: {e}")
     else:
@@ -102,7 +142,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_video))
     
-    print("Bot is starting with V16 No-Auth Engine...")
+    print("Bot is starting with ScraperAPI Tunnel Engine...")
     app.run_polling()
 
 if __name__ == "__main__":
