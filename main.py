@@ -30,20 +30,20 @@ TOKEN_PART1 = "8919342904:"
 TOKEN_PART2 = "AAF5UdlNBRpW0gZloN2vDClCWBqdITn9afo"
 BOT_TOKEN = TOKEN_PART1 + TOKEN_PART2
 
-# 🔑 SCRAPERAPI KEY: Apni ScraperAPI key yahan quotes ke andar daalna mat bhoolna bhai!
+# 🔑 SCRAPERAPI KEY: Apni API Key yahan quotes ke andar zaroor check kar lena bhai!
 SCRAPER_API_KEY = "85d4df19802f4fb311ddd179e352cc2f"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "🚀 **Yt Downloader Engine V19 (SSL Bypass Patch) Active!**\n\n"
-        "Link bhejo bhai. Ab bina kisi security jhanjhat ke extraction hogi!"
+        "🚀 **Yt Downloader Engine V20 (Speed & Freeze Patch) Active!**\n\n"
+        "Link bhejo bhai. Ab bina freeze hue fast extraction hogi!"
     )
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     url = update.message.text
     
     if "youtube.com" in url or "youtu.be" in url:
-        status = await update.message.reply_text("⏳ Secure tunnel active... Video links nikaale jaa rahe hain...")
+        status = await update.message.reply_text("⏳ Secure tunnel active... Fast link extraction chal rahi hai...")
         
         # 🔥 PROXY STRING
         proxy_string = f"http://scraperapi:{SCRAPER_API_KEY}@proxy-server.scraperapi.com:8001"
@@ -52,14 +52,14 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             ydl_opts = {
                 'quiet': True, 
                 'no_warnings': True,
-                'socket_timeout': 90,
-                'retries': 10,
-                'format': 'best',
+                'socket_timeout': 30, # 👈 Timeout kam kiya taaki bot atke nahi, jaldi response kare
+                'retries': 5,
+                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', # 👈 Safe & Light format force kiya hai fast loading ke liye
                 'proxy': proxy_string,
-                'nocheckcertificate': True, # 👈 🔥 CRITICAL FIX: Yeh line SSL certificate error ko hamesha ke liye khatam kar degi!
+                'nocheckcertificate': True,
                 'extractor_args': {
                     'youtube': {
-                        'clients': ['android', 'ios'],
+                        'clients': ['tv', 'mweb', 'android'], # 👈 Multi-client backup lagaya hai
                         'skip': ['dash', 'hls']
                     }
                 }
@@ -76,6 +76,9 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 link_360p = None
                 direct_audio_url = None
 
+                # Direct URL fallback agar niche formats load hone mein deri ho
+                fallback_url = info.get('url')
+
                 for f in formats:
                     if f.get('vcodec') != 'none' and f.get('acodec') != 'none':
                         raw_url = f.get('url')
@@ -91,19 +94,15 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                             if raw_url:
                                 direct_audio_url = raw_url
 
+                # Agar specific formats na milein toh main single link use karega
                 if not link_720p and not link_360p:
-                    for f in reversed(formats):
-                        if f.get('vcodec') != 'none' and f.get('acodec') != 'none':
-                            raw_url = f.get('url')
-                            if raw_url:
-                                link_720p = raw_url
-                            break
+                    link_720p = fallback_url
 
                 keyboard = []
                 if link_720p:
-                    keyboard.append([InlineKeyboardButton("🎬 Download 720p HD", url=link_720p)])
+                    keyboard.append([InlineKeyboardButton("🎬 Download Video (HD/Best)", url=link_720p)])
                 if link_360p:
-                    keyboard.append([InlineKeyboardButton("🎥 Download 360p SD", url=link_360p)])
+                    keyboard.append([InlineKeyboardButton("🎥 Download Video (360p SD)", url=link_360p)])
 
                 send_audio_as_file = True
                 if direct_audio_url:
@@ -130,9 +129,9 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         except Exception as e:
             logger.error(e)
             try:
-                await status.edit_text(f"❌ Extraction Error: {e}\n\nTip: Ek baar dubara try karein.")
+                await status.edit_text(f"❌ Server side delay hua hai bahi. Ek baar dubara link bhejein, IP badal kar fast connect ho jayega!")
             except Exception:
-                await update.message.reply_text(f"❌ Error Occurred: {e}")
+                await update.message.reply_text(f"❌ Connection Timeout! Please try again.")
     else:
         await update.message.reply_text("Bhai, sahi YouTube video link bhejo!")
 
@@ -141,7 +140,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_video))
     
-    print("Bot is starting with SSL Fixed ScraperAPI Tunnel Engine...")
+    print("Bot is starting with V20 Speed Optimized Engine...")
     app.run_polling()
 
 if __name__ == "__main__":
