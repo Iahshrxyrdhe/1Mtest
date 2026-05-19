@@ -18,12 +18,12 @@ apscheduler.util.astimezone = fixed_astimezone
 
 import logging
 import yt_dlp
-import urllib.request
 import random
 import asyncio
 import time
 import sys
 import os
+import re
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -39,58 +39,46 @@ BOT_TOKEN = TOKEN_PART1 + TOKEN_PART2
 START_TIME = time.time()
 MAX_RUN_TIME = 170 * 60  # 170 Minutes (2 Hours 50 Minutes)
 
-# 🧠 GLOBAL MEMORY CACHE: Proxies memory mein rahengi, baar-baar download nahi hongi
-GLOBAL_PROXY_POOL = []
+# 🔥 LIST OF HIGH-SPEED INVIDIOUS MIRRORS FOR EXTRACTION BYPASS
+MIRRORS = [
+    "https://inv.tux.digital",
+    "https://yewtu.be",
+    "https://invidious.nerdvpn.de",
+    "https://invidious.flokinet.to",
+    "https://inv.vern.cc",
+    "https://iv.melmac.space"
+]
 
-def update_local_proxy_cache():
-    global GLOBAL_PROXY_POOL
-    # Only SOCKS5 selected as requested
-    url = "https://raw.githubusercontent.com/databay-labs/free-proxy-list/master/socks5.txt"
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-    try:
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=6) as response:
-            lines = response.read().decode('utf-8').splitlines()
-            valid_proxies = [f"socks5://{line.strip()}" for line in lines if line.strip()]
-            if valid_proxies:
-                GLOBAL_PROXY_POOL = valid_proxies
-                logger.info(f"⚡ Successfully cached {len(GLOBAL_PROXY_POOL)} SOCKS5 nodes in memory.")
-    except Exception as e:
-        logger.error(f"❌ Failed to refresh memory cache: {e}")
-
-# 🔥 YT-DLP EXTRACTOR WORKER
-def worker_extract(url, proxy_url):
+def run_yt_dlp_direct(url):
+    # Ekdam fresh random desktop aur mobile headers simulation
+    user_agents = [
+        "Mozilla/5.0 (Android 13; Mobile; rv:109.0) Gecko/114.0 Firefox/114.0",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1",
+        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36"
+    ]
+    
     ydl_opts = {
         'quiet': True, 
         'no_warnings': True,
-        'socket_timeout': 2.5, # Strict timeout for fast skipping
-        'retries': 0,
+        'socket_timeout': 6.0, 
+        'retries': 2,
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'nocheckcertificate': True,
-        'proxy': proxy_url,
+        'http_headers': {
+            'User-Agent': random.choice(user_agents),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+        },
         'extractor_args': {
             'youtube': {
-                'clients': ['android', 'web_embedded', 'tvhtml5', 'ios'],
+                # Sirf embedded aur tv clients jo bina login ke chalte hain
+                'clients': ['tvhtml5', 'web_embedded', 'android_embed'],
                 'skip': ['dash', 'hls']
             }
         }
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(url, download=False)
-
-# 🔥 YT-DLP DOWNLOAD WORKER
-def worker_download_audio(url, proxy_url, output_filename):
-    ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'socket_timeout': 12,
-        'format': 'bestaudio[ext=m4a]/bestaudio/best',
-        'outtmpl': output_filename,
-        'nocheckcertificate': True,
-        'proxy': proxy_url
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
 
 # 🛡️ AUTOMATIC AUTO-EXIT CHECKER
 def check_runtime():
@@ -116,7 +104,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 # 📥 MAIN MESSAGE HANDLER
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    global GLOBAL_PROXY_POOL
     check_runtime()
     text = update.message.text
 
@@ -135,45 +122,41 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await update.message.reply_text("Bhai, pehle niche keyboard se ek mode select karo (Video ya Audio)!")
             return
 
-        status = await update.message.reply_text("⚡ Mapping memory nodes instantly...")
-        
-        # Backup if cache is empty for some reason
-        if not GLOBAL_PROXY_POOL:
-            update_local_proxy_cache()
-            
-        if not GLOBAL_PROXY_POOL:
-            await status.edit_text("❌ Local proxy storage empty. Retrying...")
-            return
-
-        # Shuffle and take a stable batch size that doesn't choke the network
-        local_pool_copy = list(GLOBAL_PROXY_POOL)
-        random.shuffle(local_pool_copy)
-        selected_batch = local_pool_copy[:15] 
-
-        await status.edit_text("🚀 Connecting to fastest SOCKS5 route...")
-
+        status = await update.message.reply_text("⚡ Bypassing restrictions instantly...")
         loop = asyncio.get_running_loop()
-        tasks = [loop.run_in_executor(None, worker_extract, text, proxy) for proxy in selected_batch]
-
+        
         info = None
-        working_proxy = None
+        extracted = False
 
+        # 🚀 ATTEMPT 1: Direct High-Speed Embedded Client (No Proxy Delay)
         try:
-            # As soon as any worker returns data, drop out immediately
-            for completed_task in asyncio.as_completed(tasks, timeout=8.0):
-                try:
-                    result = await completed_task
-                    if result:
-                        info = result
-                        working_proxy = selected_batch[tasks.index(completed_task)]
-                        break
-                except Exception:
-                    continue
-        except asyncio.TimeoutError:
-            pass
+            info = await loop.run_in_executor(None, run_yt_dlp_direct, text)
+            if info:
+                extracted = True
+        except Exception as e:
+            logger.info(f"Direct route throttled: {e}. Trying Mirror Network...")
 
-        if not info:
-            await status.edit_text("❌ Current batch rate-limited by YouTube. Please re-send the link instantly to hit a new node batch!")
+        # 🛡️ ATTEMPT 2: Ultra-Fast Invidious Mirror Routing (If direct fails)
+        if not extracted:
+            await status.edit_text("🔄 Routing through secondary bypass line...")
+            video_id_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11}).*', text)
+            if video_id_match:
+                video_id = video_id_match.group(1)
+                shuffled_mirrors = list(MIRRORS)
+                random.shuffle(shuffled_mirrors)
+                
+                for mirror in shuffled_mirrors[:3]: # Try top 3 mirrors instantly
+                    try:
+                        mirror_url = f"{mirror}/watch?v={video_id}"
+                        info = await loop.run_in_executor(None, run_yt_dlp_direct, mirror_url)
+                        if info:
+                            extracted = True
+                            break
+                    except Exception:
+                        continue
+
+        if not extracted or not info:
+            await status.edit_text("❌ YouTube network is busy. Please copy the link again and re-send it!")
             return
 
         # 📹 VIDEO MODE
@@ -246,20 +229,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     await status.edit_text("⚠️ **THIS AUDIO SIZE IS OUT OF LIMIT**")
                     return
 
-                await status.edit_text("📥 Extracting and pushing audio stream to chat...")
+                await status.edit_text("📥 Fetching raw stream directly to cloud...")
                 
                 unique_id = random.randint(1000, 9999)
                 expected_file = f"audio_{unique_id}.m4a"
 
-                await loop.run_in_executor(None, worker_download_audio, text, working_proxy, expected_file)
+                # Direct download with strict spoofing headers
+                ydl_opts_dl = {
+                    'quiet': True,
+                    'no_warnings': True,
+                    'format': 'bestaudio[ext=m4a]/bestaudio/best',
+                    'outtmpl': expected_file,
+                    'nocheckcertificate': True,
+                }
+                
+                with yt_dlp.YoutubeDL(ydl_opts_dl) as ydl:
+                    await loop.run_in_executor(None, ydl.download, [text])
 
                 if os.path.exists(expected_file) and os.path.getsize(expected_file) > 0:
-                    await status.edit_text("📤 Uploading audio player to chat...")
+                    await status.edit_text("📤 Sending audio file...")
                     with open(expected_file, 'rb') as audio_file:
                         await update.message.reply_audio(audio=audio_file, title=video_title, performer="Yt Downloader")
                     await status.delete()
                 else:
-                    await status.edit_text("⚠️ Connection dropped by node. Please re-send the link to fetch again.")
+                    await status.edit_text("⚠️ Network lag. Please send the link once more.")
                 
                 if os.path.exists(expected_file):
                     os.remove(expected_file)
@@ -270,15 +263,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text("Bhai, sahi YouTube link bhejo ya keyboard se option select karo!")
 
 def main():
-    # Pre-load proxies directly into RAM before bot starts listening
-    print("Pre-loading SOCKS5 proxy bank into RAM cache...")
-    update_local_proxy_cache()
-
     app = Application.builder().token(BOT_TOKEN).concurrent_updates(True).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Bot is starting with RAM-Cached SOCKS5 Engine V38...")
+    print("Bot is starting with Turbo Direct-Bypass Engine V39...")
     app.run_polling()
 
 if __name__ == "__main__":
