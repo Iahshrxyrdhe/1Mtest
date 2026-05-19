@@ -18,12 +18,12 @@ apscheduler.util.astimezone = fixed_astimezone
 
 import logging
 import yt_dlp
+import urllib.request
 import random
 import asyncio
 import time
 import sys
 import os
-import re
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -39,35 +39,69 @@ BOT_TOKEN = TOKEN_PART1 + TOKEN_PART2
 START_TIME = time.time()
 MAX_RUN_TIME = 170 * 60  # 170 Minutes (2 Hours 50 Minutes)
 
-# 🌐 List of Invidious Instances for ultra-fast fallback link extraction
-INVIDIOUS_INSTANCES = [
-    "https://invidious.nerdvpn.de",
-    "https://yewtu.be",
-    "https://invidious.flokinet.to",
-    "https://inv.vern.cc",
-    "https://invidious.privacydev.net",
-    "https://iv.melmac.space"
-]
+# 🌐 FUNCTION: SOCKS4 aur SOCKS5 dono lists ko ek sath high-speed load karna
+def load_combined_proxy_pool():
+    socks5_url = "https://raw.githubusercontent.com/databay-labs/free-proxy-list/master/socks5.txt"
+    socks4_url = "https://raw.githubusercontent.com/databay-labs/free-proxy-list/master/socks4.txt"
+    
+    combined_proxies = []
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    
+    # Load SOCKS5
+    try:
+        req = urllib.request.Request(socks5_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=5) as response:
+            for line in response.read().decode('utf-8').splitlines():
+                if line.strip():
+                    combined_proxies.append(f"socks5://{line.strip()}")
+    except Exception as e:
+        logger.error(f"❌ SOCKS5 load error: {e}")
 
-# 🔥 EXTRACTION ENGINE: Multi-Client + Extractor Override
-def run_yt_dlp_fast(url):
+    # Load SOCKS4
+    try:
+        req = urllib.request.Request(socks4_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=5) as response:
+            for line in response.read().decode('utf-8').splitlines():
+                if line.strip():
+                    combined_proxies.append(f"socks4://{line.strip()}")
+    except Exception as e:
+        logger.error(f"❌ SOCKS4 load error: {e}")
+
+    return combined_proxies
+
+# 🔥 WORKER FUNCTION: Ek single proxy par yt-dlp run karna
+def worker_extract(url, proxy_url):
     ydl_opts = {
         'quiet': True, 
         'no_warnings': True,
-        'socket_timeout': 4.0, # Balanced timeout
-        'retries': 1,
+        'socket_timeout': 3.5, # Har proxy ko max 3.5 sec milenge responsing ke liye
+        'retries': 0,
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'nocheckcertificate': True,
+        'proxy': proxy_url,
         'extractor_args': {
             'youtube': {
-                # Force embedded and alternative player clients to bypass bot block
-                'clients': ['web_embedded', 'android_embed', 'tvhtml5', 'ios'],
+                'clients': ['android', 'web_embedded', 'tvhtml5', 'ios'],
                 'skip': ['dash', 'hls']
             }
         }
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(url, download=False)
+
+# 🔥 AUDIO DOWNLOAD WORKER
+def worker_download_audio(url, proxy_url, output_filename):
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'socket_timeout': 15,
+        'format': 'bestaudio[ext=m4a]/bestaudio/best',
+        'outtmpl': output_filename,
+        'nocheckcertificate': True,
+        'proxy': proxy_url
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
 
 # 🛡️ AUTOMATIC AUTO-EXIT CHECKER
 def check_runtime():
@@ -111,43 +145,49 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await update.message.reply_text("Bhai, pehle niche keyboard se ek mode select karo (Video ya Audio)!")
             return
 
-        status = await update.message.reply_text("⚡ Processing link instantly via Bypass Pipeline...")
+        status = await update.message.reply_text("⏳ Scanning SOCKS4/5 clusters parallelly...")
         loop = asyncio.get_running_loop()
         
+        # Combined pool load karo
+        all_proxies = await loop.run_in_executor(None, load_combined_proxy_pool)
+        if not all_proxies:
+            await status.edit_text("❌ Failed to fetch proxy nodes from database repo.")
+            return
+
+        random.shuffle(all_proxies)
+        # ⚡ BATCH SELECTION: Ek sath 35 proxies ko trigger karenge speed ke liye
+        selected_batch = all_proxies[:35] 
+        
+        await status.edit_text(f"⚡ Attacking link via {len(selected_batch)} Parallel Proxy Nodes...")
+
+        # Create concurrent tasks for all proxies in the batch
+        tasks = []
+        for proxy in selected_batch:
+            tasks.append(loop.run_in_executor(None, worker_extract, text, proxy))
+
         info = None
-        extracted_successfully = False
+        working_proxy = None
 
-        # 🚀 STEP 1: Direct Fetch with Spoofed Embedded Clients
+        # 🔥 THE SPEED MASTER: Jo task pehle complete hoga, baaki sab instantly cancel ho jayenge!
         try:
-            info = await loop.run_in_executor(None, run_yt_dlp_fast, text)
-            if info:
-                extracted_successfully = True
-        except Exception as e:
-            logger.info(f"Direct fetch restricted: {e}. Trying Invidious Bridge...")
+            for completed_task in asyncio.as_completed(tasks, timeout=12.0):
+                try:
+                    result = await completed_task
+                    if result:
+                        info = result
+                        # Find which proxy fetched it
+                        working_proxy = selected_batch[tasks.index(completed_task)]
+                        break # First match milte hi pure loop se exit!
+                except Exception:
+                    continue
+        except asyncio.TimeoutError:
+            pass
 
-        # 🛡️ STEP 2: Invidious Alternative Instance Router (If direct fails)
-        if not extracted_successfully:
-            await status.edit_text("⏳ Bypassing YouTube Restrictions... Please wait a moment.")
-            
-            # Extract video ID
-            video_id_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11}).*', text)
-            if video_id_match:
-                video_id = video_id_match.group(1)
-                random.shuffle(INVIDIOUS_INSTANCES)
-                
-                # Try routing through mirror endpoints
-                for instance in INVIDIOUS_INSTANCES[:3]:
-                    try:
-                        mirror_url = f"{instance}/watch?v={video_id}"
-                        info = await loop.run_in_executor(None, run_yt_dlp_fast, mirror_url)
-                        if info:
-                            extracted_successfully = True
-                            break
-                    except Exception:
-                        continue
-
-        if not extracted_successfully or not info:
-            await status.edit_text("❌ YouTube is heavily rate-limiting requests right now. Please try re-sending the link or try another video!")
+        # Cleanup outstanding tasks if any match was found
+        if info:
+            logger.info(f"🎯 Connection Match Found via: {working_proxy}")
+        else:
+            await status.edit_text("❌ Saari tested batch proxies busy ya rate-limited mili. Dobara link bhejein!")
             return
 
         # 📹 VIDEO MODE INTERACTION
@@ -220,30 +260,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     await status.edit_text("⚠️ **THIS AUDIO SIZE IS OUT OF LIMIT**")
                     return
 
-                await status.edit_text("📥 Downloading audio track directly to Telegram...")
+                await status.edit_text("📥 Downloading audio via matched proxy stream...")
                 
                 unique_id = random.randint(1000, 9999)
                 expected_file = f"audio_{unique_id}.m4a"
 
-                # Direct high-speed worker download without broken proxies
-                ydl_opts_dl = {
-                    'quiet': True,
-                    'no_warnings': True,
-                    'format': 'bestaudio[ext=m4a]/bestaudio/best',
-                    'outtmpl': expected_file,
-                    'nocheckcertificate': True,
-                }
-                
-                with yt_dlp.YoutubeDL(ydl_opts_dl) as ydl:
-                    await loop.run_in_executor(None, ydl.download, [text])
+                # Jis proxy se link mila usi working node se direct download download trigger hoga
+                await loop.run_in_executor(None, worker_download_audio, text, working_proxy, expected_file)
 
                 if os.path.exists(expected_file) and os.path.getsize(expected_file) > 0:
-                    await status.edit_text("📤 Uploading audio player...")
+                    await status.edit_text("📤 Uploading audio player to chat...")
                     with open(expected_file, 'rb') as audio_file:
                         await update.message.reply_audio(audio=audio_file, title=video_title, performer="Yt Downloader")
                     await status.delete()
                 else:
-                    await status.edit_text("⚠️ Download interrupted by network reset. Please try again.")
+                    await status.edit_text("⚠️ Connection lost during file pipeline. Re-send link to try again.")
                 
                 if os.path.exists(expected_file):
                     os.remove(expected_file)
@@ -258,7 +289,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Bot is starting with Invidious Bypass Engine V36...")
+    print("Bot is starting with Concurrent Match Engine V37...")
     app.run_polling()
 
 if __name__ == "__main__":
