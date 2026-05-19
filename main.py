@@ -39,7 +39,6 @@ BOT_TOKEN = TOKEN_PART1 + TOKEN_PART2
 START_TIME = time.time()
 MAX_RUN_TIME = 170 * 60  # 170 Minutes (2 Hours 50 Minutes)
 
-# 🧠 GLOBAL RAM CACHE FOR BOTH PROXY TYPES
 GLOBAL_PROXY_POOL = []
 
 def load_all_proxies_into_ram():
@@ -50,47 +49,38 @@ def load_all_proxies_into_ram():
     temp_pool = []
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
     
-    # 🎯 SOCKS5 Load System
     try:
         req = urllib.request.Request(socks5_url, headers=headers)
         with urllib.request.urlopen(req, timeout=6) as response:
-            lines = response.read().decode('utf-8').splitlines()
-            for line in lines:
-                if line.strip():
-                    temp_pool.append(f"socks5://{line.strip()}")
-        logger.info("✅ SOCKS5 Bank synced inside RAM.")
-    except Exception as e:
-        logger.error(f"❌ SOCKS5 download fail: {e}")
+            for line in response.read().decode('utf-8').splitlines():
+                if line.strip(): temp_pool.append(f"socks5://{line.strip()}")
+    except Exception: pass
 
-    # 🎯 SOCKS4 Load System
     try:
         req = urllib.request.Request(socks4_url, headers=headers)
         with urllib.request.urlopen(req, timeout=6) as response:
-            lines = response.read().decode('utf-8').splitlines()
-            for line in lines:
-                if line.strip():
-                    temp_pool.append(f"socks4://{line.strip()}")
-        logger.info("✅ SOCKS4 Bank synced inside RAM.")
-    except Exception as e:
-        logger.error(f"❌ SOCKS4 download fail: {e}")
+            for line in response.read().decode('utf-8').splitlines():
+                if line.strip(): temp_pool.append(f"socks4://{line.strip()}")
+    except Exception: pass
 
     if temp_pool:
         GLOBAL_PROXY_POOL = temp_pool
-        logger.info(f"🔥 Total Dynamic Proxies Active in RAM: {len(GLOBAL_PROXY_POOL)}")
+        logger.info(f"🔥 Pool Synced inside RAM: {len(GLOBAL_PROXY_POOL)} nodes ready.")
 
-# 🔥 SINGLE PROXY METRIC WORKER
-def extract_metric(url, proxy_url):
+# ⚡ STEP 1: Fast Core Extractor (Sirf connection test karega bina heavy formats load kiye)
+def extract_fast_core(url, proxy_url):
     ydl_opts = {
         'quiet': True, 
         'no_warnings': True,
-        'socket_timeout': 5.0, # 🛠️ FIX: Timeout 1.5s se badha kar 5.0s kiya taaki slow-but-working proxy skip na ho!
-        'retries': 1,          # Allow 1 quick retry if handshake drops
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'socket_timeout': 7.0,     # Balanced optimal timeout for free nodes
+        'retries': 1,
+        'extract_flat': True,      # 🔥 CRITICAL FIX: Heavy parsing disabled (No formats/subtitles download overhead)
+        'skip_download': True,
         'nocheckcertificate': True,
         'proxy': proxy_url,
         'extractor_args': {
             'youtube': {
-                'clients': ['android', 'web_embedded', 'tvhtml5', 'ios'],
+                'clients': ['tvhtml5', 'web_embedded', 'android', 'ios'],
                 'skip': ['dash', 'hls']
             }
         }
@@ -98,12 +88,24 @@ def extract_metric(url, proxy_url):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(url, download=False)
 
-# 🔥 CORE FILE DOWNLOAD PIPELINE via THE WINNING PROXY
+# ⚡ STEP 2: Lazy Format Extractor (Jab proxy confirm ho jaye, tab formats nikalne ke liye)
+def extract_full_formats(url, proxy_url):
+    ydl_opts = {
+        'quiet': True, 
+        'no_warnings': True,
+        'socket_timeout': 15.0, 
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'nocheckcertificate': True,
+        'proxy': proxy_url
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        return ydl.extract_info(url, download=False)
+
 def download_audio_pipeline(url, proxy_url, output_filename):
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
-        'socket_timeout': 20, # Extra breathing room for slow downloads
+        'socket_timeout': 25,
         'format': 'bestaudio[ext=m4a]/bestaudio/best',
         'outtmpl': output_filename,
         'nocheckcertificate': True,
@@ -112,29 +114,17 @@ def download_audio_pipeline(url, proxy_url, output_filename):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
 
-# 🛡️ AUTOMATIC AUTO-EXIT CHECKER
 def check_runtime():
-    elapsed_time = time.time() - START_TIME
-    if elapsed_time >= MAX_RUN_TIME:
-        logger.info("⏳ 170 minutes over! Safely exiting...")
+    if (time.time() - START_TIME) >= MAX_RUN_TIME:
         sys.exit(0)
 
-# 🚀 WELCOME MESSAGE
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     check_runtime()
     context.user_data['mode'] = None
-    
-    keyboard = [
-        [KeyboardButton("📹 YT VIDEO DOWNLOADER"), KeyboardButton("🎵 AUDIO DOWNLOADER")]
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, input_field_placeholder="Select Mode From Keyboard")
-    
-    await update.message.reply_text(
-        "Hey ! Your Welcome, Give me any youtube video link for Download I will give you the Download link of that video",
-        reply_markup=reply_markup
-    )
+    keyboard = [[KeyboardButton("📹 YT VIDEO DOWNLOADER"), KeyboardButton("🎵 AUDIO DOWNLOADER")]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    await update.message.reply_text("Hey ! Your Welcome, Give me any youtube video link...", reply_markup=reply_markup)
 
-# 📥 MAIN MESSAGE HANDLER
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     global GLOBAL_PROXY_POOL
     check_runtime()
@@ -142,57 +132,51 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if text == "📹 YT VIDEO DOWNLOADER":
         context.user_data['mode'] = 'video'
-        await update.message.reply_text("📥 **YT VIDEO DOWNLOADER MODE ACTIVE**\n\nNow send me any YouTube video link:")
+        await update.message.reply_text("📥 **YT VIDEO DOWNLOADER MODE ACTIVE**\n\nSend link:")
         return
     elif text == "🎵 AUDIO DOWNLOADER":
         context.user_data['mode'] = 'audio'
-        await update.message.reply_text("📥 **AUDIO DOWNLOADER MODE ACTIVE**\n\nNow send me any YouTube video link (Max 50MB):")
+        await update.message.reply_text("📥 **AUDIO DOWNLOADER MODE ACTIVE**\n\nSend link:")
         return
 
     if "youtube.com" in text or "youtu.be" in text:
         current_mode = context.user_data.get('mode')
         if not current_mode:
-            await update.message.reply_text("Bhai, pehle niche keyboard se ek mode select karo (Video ya Audio)!")
+            await update.message.reply_text("Bhai, pehle niche keyboard se ek mode select karo!")
             return
 
-        status = await update.message.reply_text("⏳ Syncing SOCKS4/5 Dynamic Pools...")
+        status = await update.message.reply_text("⏳ Analyzing SOCKS Clusters in RAM...")
         
         if not GLOBAL_PROXY_POOL:
             load_all_proxies_into_ram()
-            
-        if not GLOBAL_PROXY_POOL:
-            await status.edit_text("❌ Data pools are currently un-reachable. Try again in 10 seconds.")
-            return
 
-        # Shuffle dynamic pool completely
         working_pool = list(GLOBAL_PROXY_POOL)
         random.shuffle(working_pool)
 
-        info = None
-        winning_proxy = None
+        # Build search matrix
+        batch_size = 4  # Smaller intense concurrent batch to avoid local network chocking
+        total_proxies_to_test = min(len(working_pool), 100)
         
-        # ⚡ BATCH CONFIG: 5 proxies ek sath hit karengi but stable window ke sath
-        batch_size = 5
-        total_proxies_to_test = min(len(working_pool), 120) # Extends search grid up to 120 nodes
-        
-        await status.edit_text("🚀 Scanning multi-proxy channels with Smart-Wait Engine...")
-
+        await status.edit_text("🚀 Scanning paths with Ultra-Light Connection Engine...")
         loop = asyncio.get_running_loop()
         
+        winning_proxy = None
+        basic_info = None
+
         for i in range(0, total_proxies_to_test, batch_size):
             current_batch = working_pool[i:i+batch_size]
-            await status.edit_text(f"⚡ Stable Testing Cluster [{i+batch_size}/{total_proxies_to_test}]...")
+            await status.edit_text(f"⚡ Testing Router Cluster [{i+batch_size}/{total_proxies_to_test}] (Smart-Hold)...")
             
-            # Fire 5 workers simultaneously
-            tasks = [loop.run_in_executor(None, extract_metric, text, proxy) for proxy in current_batch]
+            # Fire flat/light workers
+            tasks = [loop.run_in_executor(None, extract_fast_core, text, proxy) for proxy in current_batch]
             
             try:
-                # 🛠️ FIX: Timeout badha kar 5.5s kiya taaki active links successfully capture ho saken
-                for completed_task in asyncio.as_completed(tasks, timeout=5.5):
+                # Increased timeout to 8.5 seconds to perfectly preserve working slow proxies
+                for completed_task in asyncio.as_completed(tasks, timeout=8.5):
                     try:
                         result = await completed_task
-                        if result:
-                            info = result
+                        if result and (result.get('title') or result.get('id')):
+                            basic_info = result
                             winning_proxy = current_batch[tasks.index(completed_task)]
                             break
                     except Exception:
@@ -200,38 +184,40 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             except asyncio.TimeoutError:
                 pass
             
-            if info:
-                break # Match found, breakout instantly!
+            if basic_info:
+                break
 
-        if not info:
-            await status.edit_text("❌ Sabhi tested routes tight block par hain. Ek baar link dobara bhej kar dekhein!")
+        if not basic_info or not winning_proxy:
+            await status.edit_text("❌ All paths currently choked. Please hit send again to shuffle a fresh batch!")
             return
 
-        # 📹 VIDEO MODE INTERACTION
+        # 🎯 STEP 3: Proxy verified! Now lazily load complete download maps using the working proxy
+        await status.edit_text("🎯 Path Verified! Building high-speed download streams...")
+        
+        try:
+            info = await loop.run_in_executor(None, extract_full_formats, text, winning_proxy)
+        except Exception:
+            info = basic_info # Fallback to basic if heavy parsing breaks
+
+        # 📹 VIDEO MODE
         if current_mode == 'video':
             try:
                 video_title = info.get('title', 'Video File')
                 thumbnail_url = info.get('thumbnail') 
                 formats = info.get('formats', [])
 
-                link_720p = None
-                link_360p = None
-                fallback_url = info.get('url')
+                link_720p, link_360p, fallback_url = None, None, info.get('url')
 
                 for f in formats:
                     if f.get('vcodec') != 'none' and f.get('acodec') != 'none':
                         raw_url = f.get('url')
                         if raw_url:
-                            if f.get('height') == 360:
-                                link_360p = raw_url
-                            elif f.get('height') == 720:
-                                link_720p = raw_url
+                            if f.get('height') == 360: link_360p = raw_url
+                            elif f.get('height') == 720: link_720p = raw_url
 
                 links_text = ""
-                if link_720p:
-                    links_text += f"🔹 <a href='{link_720p}'>👉 CLICK HERE TO DOWNLOAD (HD Quality) 👈</a>\n\n"
-                if link_360p:
-                    links_text += f"🔹 <a href='{link_360p}'>👉 CLICK HERE TO DOWNLOAD (360p SD) 👈</a>\n\n"
+                if link_720p: links_text += f"🔹 <a href='{link_720p}'>👉 CLICK HERE TO DOWNLOAD (HD 720p) 👈</a>\n\n"
+                if link_360p: links_text += f"🔹 <a href='{link_360p}'>👉 CLICK HERE TO DOWNLOAD (SD 360p) 👈</a>\n\n"
                 
                 if not link_720p and not link_360p:
                     best_stream = fallback_url
@@ -240,16 +226,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                             if fmt.get('url') and ('googlevideo.com' in fmt.get('url') or 'manifest' in fmt.get('url')):
                                 best_stream = fmt.get('url')
                                 break
-                    if best_stream:
-                        links_text += f"🔹 <a href='{best_stream}'>👉 CLICK HERE TO DOWNLOAD (Best Available Quality) 👈</a>\n\n"
+                    if best_stream: links_text += f"🔹 <a href='{best_stream}'>👉 CLICK HERE TO DOWNLOAD (Best Available) 👈</a>\n\n"
 
                 guide_caption = (
                     f"🎯 <b>Video Title:</b> {video_title}\n\n"
-                    f"👇 <b>VIDEO DOWNLOAD LINKS:</b>\n"
-                    f"{links_text}"
-                    f"📖 <b>DOWNLOAD KAISE KAREIN? (EASY GUIDE):</b>\n"
-                    f"1️⃣ Upar diye gaye blue color ke link text par click karein.\n"
-                    f"2️⃣ Browser mein file open hote hi <b>Long Press</b> karein ya niche right side mein <b>3-dots (...)</b> par click karke <b>Download</b> daba dein! 🚀"
+                    f"👇 <b>VIDEO DOWNLOAD LINKS:</b>\n{links_text}"
+                    f"📖 <b>GUIDE:</b> Long press blue link and select download!"
                 )
 
                 await status.delete()
@@ -260,29 +242,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             except Exception as e:
                 await status.edit_text(f"❌ Video link builder error: {e}")
 
-        # 🎵 AUDIO MODE INTERACTION
+        # 🎵 AUDIO MODE
         elif current_mode == 'audio':
             try:
                 video_title = info.get('title', 'Audio File')
-                formats = info.get('formats', [])
-                
-                audio_size_bytes = 0
-                for f in formats:
-                    if f.get('vcodec') == 'none' and f.get('acodec') != 'none':
-                        audio_size_bytes = f.get('filesize') or f.get('filesize_approx') or 0
-
-                audio_size_mb = audio_size_bytes / (1024 * 1024) if audio_size_bytes else 0
-
-                if audio_size_mb > 50:
-                    await status.edit_text("⚠️ **THIS AUDIO SIZE IS OUT OF LIMIT**")
-                    return
-
                 await status.edit_text("📥 Extracting and streaming audio file via verified proxy...")
                 
                 unique_id = random.randint(1000, 9999)
                 expected_file = f"audio_{unique_id}.m4a"
 
-                # Direct download mapping with the identical proxy that cracked the extraction
                 await loop.run_in_executor(None, download_audio_pipeline, text, winning_proxy, expected_file)
 
                 if os.path.exists(expected_file) and os.path.getsize(expected_file) > 0:
@@ -291,25 +259,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                         await update.message.reply_audio(audio=audio_file, title=video_title, performer="Yt Downloader")
                     await status.delete()
                 else:
-                    await status.edit_text("⚠️ Connection dropped by proxy line during data pipe. Re-send link!")
+                    await status.edit_text("⚠️ Connection dropped during download stream. Try sending link again!")
                 
-                if os.path.exists(expected_file):
-                    os.remove(expected_file)
-
+                if os.path.exists(expected_file): os.remove(expected_file)
             except Exception as e:
                 await status.edit_text(f"❌ Audio processing error: {e}")
     else:
-        await update.message.reply_text("Bhai, sahi YouTube link bhejo ya keyboard se option select karo!")
+        await update.message.reply_text("Bhai, sahi YouTube link bhejo!")
 
 def main():
-    print("Pre-loading combined SOCKS4 & SOCKS5 databanks into RAM memory...")
     load_all_proxies_into_ram()
-
     app = Application.builder().token(BOT_TOKEN).concurrent_updates(True).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    print("Bot is starting with Smart-Wait Cluster Engine V41...")
+    print("Bot is starting with Light-Weight Split Architecture V42...")
     app.run_polling()
 
 if __name__ == "__main__":
