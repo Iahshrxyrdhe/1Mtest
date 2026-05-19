@@ -83,8 +83,8 @@ def extract_metric(url, proxy_url):
     ydl_opts = {
         'quiet': True, 
         'no_warnings': True,
-        'socket_timeout': 1.5, # Super strict 1.5s timeout to avoid dead locks
-        'retries': 0,
+        'socket_timeout': 5.0, # 🛠️ FIX: Timeout 1.5s se badha kar 5.0s kiya taaki slow-but-working proxy skip na ho!
+        'retries': 1,          # Allow 1 quick retry if handshake drops
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'nocheckcertificate': True,
         'proxy': proxy_url,
@@ -103,7 +103,7 @@ def download_audio_pipeline(url, proxy_url, output_filename):
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
-        'socket_timeout': 15,
+        'socket_timeout': 20, # Extra breathing room for slow downloads
         'format': 'bestaudio[ext=m4a]/bestaudio/best',
         'outtmpl': output_filename,
         'nocheckcertificate': True,
@@ -171,24 +171,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         info = None
         winning_proxy = None
         
-        # ⚡ BATCH SEQUENCER: 5-5 proxies ke chunks bana kar fast scan chalayenge
+        # ⚡ BATCH CONFIG: 5 proxies ek sath hit karengi but stable window ke sath
         batch_size = 5
-        total_proxies_to_test = min(len(working_pool), 60) # Max 60 proxies total check karenge sequential batches mein
+        total_proxies_to_test = min(len(working_pool), 120) # Extends search grid up to 120 nodes
         
-        await status.edit_text("🚀 Scanning multi-proxy channels in fast sequence...")
+        await status.edit_text("🚀 Scanning multi-proxy channels with Smart-Wait Engine...")
 
         loop = asyncio.get_running_loop()
         
         for i in range(0, total_proxies_to_test, batch_size):
             current_batch = working_pool[i:i+batch_size]
-            await status.edit_text(f"⚡ Testing Router Cluster [{i+batch_size}/{total_proxies_to_test}]...")
+            await status.edit_text(f"⚡ Stable Testing Cluster [{i+batch_size}/{total_proxies_to_test}]...")
             
-            # Fire 5 workers simultaneously in this specific batch
+            # Fire 5 workers simultaneously
             tasks = [loop.run_in_executor(None, extract_metric, text, proxy) for proxy in current_batch]
             
             try:
-                # First proxy to clear within 2.5s window breaks out the cluster loop
-                for completed_task in asyncio.as_completed(tasks, timeout=2.5):
+                # 🛠️ FIX: Timeout badha kar 5.5s kiya taaki active links successfully capture ho saken
+                for completed_task in asyncio.as_completed(tasks, timeout=5.5):
                     try:
                         result = await completed_task
                         if result:
@@ -201,10 +201,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 pass
             
             if info:
-                break # Complete breakout, match is found!
+                break # Match found, breakout instantly!
 
         if not info:
-            await status.edit_text("❌ All selected SOCKS4/5 nodes are busy. Send the link again to sweep a fresh pool batch!")
+            await status.edit_text("❌ Sabhi tested routes tight block par hain. Ek baar link dobara bhej kar dekhein!")
             return
 
         # 📹 VIDEO MODE INTERACTION
@@ -309,7 +309,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Bot is starting with Multi-File Batch Sequence Engine V40...")
+    print("Bot is starting with Smart-Wait Cluster Engine V41...")
     app.run_polling()
 
 if __name__ == "__main__":
