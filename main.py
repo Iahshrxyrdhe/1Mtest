@@ -58,7 +58,7 @@ def test_single_proxy(url, proxy_url):
     ydl_opts = {
         'quiet': True, 
         'no_warnings': True,
-        'socket_timeout': 4.0,
+        'socket_timeout': 5.0,
         'retries': 0,
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'nocheckcertificate': True,
@@ -73,52 +73,56 @@ def test_single_proxy(url, proxy_url):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(url, download=False)
 
-# 🔥 CORE FILE DOWNLOAD PIPELINE WITH AUTO-DIRECT FALLBACK
+# 🔥 FULLY TUNED MULTI-STAGE AUDIO DOWNLOADER
 def download_audio_pipeline(url, proxy_url, output_filename):
-    # 🎯 Attempt 1: Proxy ke sath try karo
+    # 🎯 Stage 1: Target verified proxy ke sath download start karo
     ydl_opts_proxy = {
         'quiet': True,
         'no_warnings': True,
-        'socket_timeout': 15,
+        'socket_timeout': 20,
         'format': 'bestaudio[ext=m4a]/bestaudio/best',
         'outtmpl': output_filename,
         'nocheckcertificate': True,
         'proxy': proxy_url
     }
     try:
-        logger.info(f"🔄 Trying audio download via proxy: {proxy_url}")
+        logger.info(f"🔄 Stage 1: Initiating download via SOCKS5: {proxy_url}")
         with yt_dlp.YoutubeDL(ydl_opts_proxy) as ydl:
             ydl.download([url])
+        if os.path.exists(output_filename) and os.path.getsize(output_filename) > 0:
             return True
-    except Exception as e:
-        logger.warning(f"⚠️ Proxy reset connection: {e}. Switching to Direct Cloud Pipeline instantly!")
-        
-        # 🎯 Attempt 2: Bypassing proxy and downloading directly via server network if proxy resets
-        ydl_opts_direct = {
-            'quiet': True,
-            'no_warnings': True,
-            'socket_timeout': 25,
-            'format': 'bestaudio[ext=m4a]/bestaudio/best',
-            'outtmpl': output_filename,
-            'nocheckcertificate': True,
-            'extractor_args': {
-                'youtube': {
-                    'clients': ['tvhtml5', 'android_embed'],
-                    'skip': ['dash', 'hls']
-                }
+    except Exception as proxy_err:
+        logger.warning(f"⚠️ Stage 1 Proxy failed or reset connection: {proxy_err}")
+
+    # 🎯 Stage 2: Core Direct Uncapped Fallback Pipeline (If Proxy Drops)
+    logger.info("⚡ Stage 2: Deploying high-speed direct client stream simulation...")
+    ydl_opts_direct = {
+        'quiet': True,
+        'no_warnings': True,
+        'socket_timeout': 35, # Maximum breathing room for heavy files
+        'format': 'bestaudio[ext=m4a]/bestaudio/best',
+        'outtmpl': output_filename,
+        'nocheckcertificate': True,
+        'extractor_args': {
+            'youtube': {
+                # Force Android native client app token replication to bypass data throttling limits
+                'clients': ['android', 'tvhtml5'],
+                'skip': ['dash', 'hls']
             }
         }
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts_direct) as ydl:
-                ydl.download([url])
-                return True
-        except Exception as direct_err:
-            logger.error(f"❌ Direct fallback also failed: {direct_err}")
-            return False
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts_direct) as ydl:
+            ydl.download([url])
+        if os.path.exists(output_filename) and os.path.getsize(output_filename) > 0:
+            return True
+    except Exception as direct_err:
+        logger.error(f"❌ Stage 2 Direct fallback also choked: {direct_err}")
+    
+    return False
 
 def check_runtime():
-    elapsed_time = time.time() - START_TIME
-    if elapsed_time >= MAX_RUN_TIME:
+    if (time.time() - START_TIME) >= MAX_RUN_TIME:
         sys.exit(0)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -223,34 +227,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         elif current_mode == 'audio':
             try:
                 video_title = info.get('title', 'Audio File')
-                await status.edit_text("📥 Extracting and streaming audio file safely...")
+                await status.edit_text("📥 Extracting audio file via multi-stage data lines...")
                 
                 unique_id = random.randint(1000, 9999)
                 expected_file = f"audio_{unique_id}.m4a"
 
-                # 🛠️ FIX: Runs the smart-pipeline that automatically drops proxies if Errno 104 occurs
+                # Trigger our multi-stage robust download logic
                 success = await loop.run_in_executor(None, download_audio_pipeline, text, winning_proxy, expected_file)
 
                 if success and os.path.exists(expected_file) and os.path.getsize(expected_file) > 0:
-                    await status.edit_text("📤 Uploading audio to chat...")
+                    await status.edit_text("📤 Uploading audio player to Telegram...")
                     with open(expected_file, 'rb') as audio_file:
-                        await update.message.reply_audio(audio=audio_file, title=video_title, performer="Yt Downloader")
+                        # Fixed file delivery mapping to completely avoid telegram api timeout dropouts
+                        await update.message.reply_audio(
+                            audio=audio_file, 
+                            title=video_title, 
+                            performer="Yt Downloader", 
+                            write_timeout=60 # Extended telegram API upload connection window
+                        )
                     await status.delete()
-                else:
-                    await status.edit_text("❌ Audio stream timed out on both proxy and fallback networks. Re-send link!")
-                
-                if os.path.exists(expected_file): os.remove(expected_file)
-            except Exception as e:
-                await status.edit_text(f"❌ Audio processing error: {e}")
-    else:
-        await update.message.reply_text("Bhai, sahi YouTube link bhejo!")
-
-def main():
-    app = Application.builder().token(BOT_TOKEN).concurrent_updates(True).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("Bot is starting with Bulletproof Audio Fallback Engine V45...")
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
+            else:
