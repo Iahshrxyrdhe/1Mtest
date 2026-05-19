@@ -20,7 +20,9 @@ import logging
 import yt_dlp
 import urllib.request
 import random
-import asyncio  # 👈 Parallel execution ke liye zaroori hai
+import asyncio
+import time
+import sys
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -32,7 +34,11 @@ TOKEN_PART1 = "8919342904:"
 TOKEN_PART2 = "AAF5UdlNBRpW0gZloN2vDClCWBqdITn9afo"
 BOT_TOKEN = TOKEN_PART1 + TOKEN_PART2
 
-# 🌐 FUNCTION: SOCKS5 proxies load karna (Synchronous function ko handler block nahi karne dega)
+# ⏱️ START TIME TRACKER (Auto-Exit Loop Configuration)
+START_TIME = time.time()
+MAX_RUN_TIME = 170 * 60  # 170 Minutes (2 Hours 50 Minutes)
+
+# 🌐 FUNCTION: SOCKS5 proxies load karna
 def load_socks5_pool():
     url = "https://raw.githubusercontent.com/databay-labs/free-proxy-list/master/socks5.txt"
     try:
@@ -49,7 +55,7 @@ def load_socks5_pool():
         logger.error(f"❌ Failed to fetch socks5.txt from GitHub: {e}")
     return []
 
-# 🔥 PARALLEL ENGINE: Yeh function background thread mein chalega taaki main bot block na ho
+# 🔥 PARALLEL ENGINE: Background process
 def run_yt_dlp_parallel(url, proxy_url):
     ydl_opts = {
         'quiet': True, 
@@ -71,19 +77,27 @@ def run_yt_dlp_parallel(url, proxy_url):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(url, download=False)
 
+# 🛡️ AUTOMATIC AUTO-EXIT CHECKER: Har message par check karega time limit
+def check_runtime():
+    elapsed_time = time.time() - START_TIME
+    if elapsed_time >= MAX_RUN_TIME:
+        logger.info("⏳ 170 minutes over! Safely exiting to allow GitHub Actions to trigger fresh workflow...")
+        sys.exit(0) # Code safely closed, workflow ends clean
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    check_runtime()
     await update.message.reply_text(
-        "🚀 **Yt Downloader Engine V29 (Parallel Multi-User Mode) Active!**\n\n"
-        "Link bhejo bhai. Ab saare users ka kaam ek sath parallel mein hoga, koi queue nahi lagegi!"
+        "🚀 **Yt Downloader Engine V30 (24/7 Loop Edition) Active!**\n\n"
+        "Link bhejo bhai. Parallel core, direct caption links aur auto-restart pipeline set hai!"
     )
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    check_runtime() # Check timer before starting heavy operations
     url = update.message.text
     
     if "youtube.com" in url or "youtu.be" in url:
         status = await update.message.reply_text("⏳ Connecting to SOCKS5 node parallelly...")
         
-        # Proxies fetch karne ke sync operation ko async pool mein run kar rahe hain
         loop = asyncio.get_running_loop()
         proxy_pool = await loop.run_in_executor(None, load_socks5_pool)
         
@@ -91,12 +105,11 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             proxy_pool = [None]
         else:
             random.shuffle(proxy_pool)
-            proxy_pool = proxy_pool[:10] # Top 10 fast checks for speed
+            proxy_pool = proxy_pool[:10]
 
         info = None
         extracted_successfully = False
 
-        # 🔥 SMART ASYNC LOOP: Har proxy test background thread mein chalegi
         for i, raw_proxy in enumerate(proxy_pool):
             proxy_url = f"socks5://{raw_proxy}" if raw_proxy else None
             
@@ -104,7 +117,6 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 if proxy_url:
                     await status.edit_text(f"⏳ Testing Node [{i+1}/{len(proxy_pool)}] parallelly...")
                 
-                # 🚀 MAIN MAGIC: run_in_executor ke kaaran ye loop baki users ko block nahi karega!
                 info = await loop.run_in_executor(None, run_yt_dlp_parallel, url, proxy_url)
                 if info:
                     extracted_successfully = True
@@ -112,7 +124,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             except Exception:
                 continue 
 
-        # 🔥 RESPONSE BUILDER
+        # RESPONSE BUILDER
         if extracted_successfully and info:
             try:
                 video_title = info.get('title', 'Video File')
@@ -175,12 +187,11 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text("Bhai, sahi YouTube video link bhejo!")
 
 def main():
-    # 🚀 BLOCKING PREVENTION: Application builder mein concurrent updates allowed kar rahe hain
     app = Application.builder().token(BOT_TOKEN).concurrent_updates(True).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_video))
     
-    print("Bot is starting with Multi-User Parallel Engine...")
+    print("Bot is starting with Multi-User Loop Engine...")
     app.run_polling()
 
 if __name__ == "__main__":
