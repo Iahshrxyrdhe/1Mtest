@@ -39,42 +39,31 @@ BOT_TOKEN = TOKEN_PART1 + TOKEN_PART2
 START_TIME = time.time()
 MAX_RUN_TIME = 170 * 60  # 170 Minutes (2 Hours 50 Minutes)
 
-# 🌐 FUNCTION: SOCKS4 aur SOCKS5 dono lists ko ek sath high-speed load karna
-def load_combined_proxy_pool():
-    socks5_url = "https://raw.githubusercontent.com/databay-labs/free-proxy-list/master/socks5.txt"
-    socks4_url = "https://raw.githubusercontent.com/databay-labs/free-proxy-list/master/socks4.txt"
-    
-    combined_proxies = []
+# 🧠 GLOBAL MEMORY CACHE: Proxies memory mein rahengi, baar-baar download nahi hongi
+GLOBAL_PROXY_POOL = []
+
+def update_local_proxy_cache():
+    global GLOBAL_PROXY_POOL
+    # Only SOCKS5 selected as requested
+    url = "https://raw.githubusercontent.com/databay-labs/free-proxy-list/master/socks5.txt"
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-    
-    # Load SOCKS5
     try:
-        req = urllib.request.Request(socks5_url, headers=headers)
-        with urllib.request.urlopen(req, timeout=5) as response:
-            for line in response.read().decode('utf-8').splitlines():
-                if line.strip():
-                    combined_proxies.append(f"socks5://{line.strip()}")
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=6) as response:
+            lines = response.read().decode('utf-8').splitlines()
+            valid_proxies = [f"socks5://{line.strip()}" for line in lines if line.strip()]
+            if valid_proxies:
+                GLOBAL_PROXY_POOL = valid_proxies
+                logger.info(f"⚡ Successfully cached {len(GLOBAL_PROXY_POOL)} SOCKS5 nodes in memory.")
     except Exception as e:
-        logger.error(f"❌ SOCKS5 load error: {e}")
+        logger.error(f"❌ Failed to refresh memory cache: {e}")
 
-    # Load SOCKS4
-    try:
-        req = urllib.request.Request(socks4_url, headers=headers)
-        with urllib.request.urlopen(req, timeout=5) as response:
-            for line in response.read().decode('utf-8').splitlines():
-                if line.strip():
-                    combined_proxies.append(f"socks4://{line.strip()}")
-    except Exception as e:
-        logger.error(f"❌ SOCKS4 load error: {e}")
-
-    return combined_proxies
-
-# 🔥 WORKER FUNCTION: Ek single proxy par yt-dlp run karna
+# 🔥 YT-DLP EXTRACTOR WORKER
 def worker_extract(url, proxy_url):
     ydl_opts = {
         'quiet': True, 
         'no_warnings': True,
-        'socket_timeout': 3.5, # Har proxy ko max 3.5 sec milenge responsing ke liye
+        'socket_timeout': 2.5, # Strict timeout for fast skipping
         'retries': 0,
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'nocheckcertificate': True,
@@ -89,12 +78,12 @@ def worker_extract(url, proxy_url):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(url, download=False)
 
-# 🔥 AUDIO DOWNLOAD WORKER
+# 🔥 YT-DLP DOWNLOAD WORKER
 def worker_download_audio(url, proxy_url, output_filename):
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
-        'socket_timeout': 15,
+        'socket_timeout': 12,
         'format': 'bestaudio[ext=m4a]/bestaudio/best',
         'outtmpl': output_filename,
         'nocheckcertificate': True,
@@ -110,7 +99,7 @@ def check_runtime():
         logger.info("⏳ 170 minutes over! Safely exiting...")
         sys.exit(0)
 
-# 🚀 WELCOME MESSAGE WITH PROFESSIONAL REPLY KEYBOARD
+# 🚀 WELCOME MESSAGE
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     check_runtime()
     context.user_data['mode'] = None
@@ -127,6 +116,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 # 📥 MAIN MESSAGE HANDLER
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    global GLOBAL_PROXY_POOL
     check_runtime()
     text = update.message.text
 
@@ -145,52 +135,48 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await update.message.reply_text("Bhai, pehle niche keyboard se ek mode select karo (Video ya Audio)!")
             return
 
-        status = await update.message.reply_text("⏳ Scanning SOCKS4/5 clusters parallelly...")
-        loop = asyncio.get_running_loop()
+        status = await update.message.reply_text("⚡ Mapping memory nodes instantly...")
         
-        # Combined pool load karo
-        all_proxies = await loop.run_in_executor(None, load_combined_proxy_pool)
-        if not all_proxies:
-            await status.edit_text("❌ Failed to fetch proxy nodes from database repo.")
+        # Backup if cache is empty for some reason
+        if not GLOBAL_PROXY_POOL:
+            update_local_proxy_cache()
+            
+        if not GLOBAL_PROXY_POOL:
+            await status.edit_text("❌ Local proxy storage empty. Retrying...")
             return
 
-        random.shuffle(all_proxies)
-        # ⚡ BATCH SELECTION: Ek sath 35 proxies ko trigger karenge speed ke liye
-        selected_batch = all_proxies[:35] 
-        
-        await status.edit_text(f"⚡ Attacking link via {len(selected_batch)} Parallel Proxy Nodes...")
+        # Shuffle and take a stable batch size that doesn't choke the network
+        local_pool_copy = list(GLOBAL_PROXY_POOL)
+        random.shuffle(local_pool_copy)
+        selected_batch = local_pool_copy[:15] 
 
-        # Create concurrent tasks for all proxies in the batch
-        tasks = []
-        for proxy in selected_batch:
-            tasks.append(loop.run_in_executor(None, worker_extract, text, proxy))
+        await status.edit_text("🚀 Connecting to fastest SOCKS5 route...")
+
+        loop = asyncio.get_running_loop()
+        tasks = [loop.run_in_executor(None, worker_extract, text, proxy) for proxy in selected_batch]
 
         info = None
         working_proxy = None
 
-        # 🔥 THE SPEED MASTER: Jo task pehle complete hoga, baaki sab instantly cancel ho jayenge!
         try:
-            for completed_task in asyncio.as_completed(tasks, timeout=12.0):
+            # As soon as any worker returns data, drop out immediately
+            for completed_task in asyncio.as_completed(tasks, timeout=8.0):
                 try:
                     result = await completed_task
                     if result:
                         info = result
-                        # Find which proxy fetched it
                         working_proxy = selected_batch[tasks.index(completed_task)]
-                        break # First match milte hi pure loop se exit!
+                        break
                 except Exception:
                     continue
         except asyncio.TimeoutError:
             pass
 
-        # Cleanup outstanding tasks if any match was found
-        if info:
-            logger.info(f"🎯 Connection Match Found via: {working_proxy}")
-        else:
-            await status.edit_text("❌ Saari tested batch proxies busy ya rate-limited mili. Dobara link bhejein!")
+        if not info:
+            await status.edit_text("❌ Current batch rate-limited by YouTube. Please re-send the link instantly to hit a new node batch!")
             return
 
-        # 📹 VIDEO MODE INTERACTION
+        # 📹 VIDEO MODE
         if current_mode == 'video':
             try:
                 video_title = info.get('title', 'Video File')
@@ -243,7 +229,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             except Exception as e:
                 await status.edit_text(f"❌ Video link builder error: {e}")
 
-        # 🎵 AUDIO MODE INTERACTION
+        # 🎵 AUDIO MODE
         elif current_mode == 'audio':
             try:
                 video_title = info.get('title', 'Audio File')
@@ -260,12 +246,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     await status.edit_text("⚠️ **THIS AUDIO SIZE IS OUT OF LIMIT**")
                     return
 
-                await status.edit_text("📥 Downloading audio via matched proxy stream...")
+                await status.edit_text("📥 Extracting and pushing audio stream to chat...")
                 
                 unique_id = random.randint(1000, 9999)
                 expected_file = f"audio_{unique_id}.m4a"
 
-                # Jis proxy se link mila usi working node se direct download download trigger hoga
                 await loop.run_in_executor(None, worker_download_audio, text, working_proxy, expected_file)
 
                 if os.path.exists(expected_file) and os.path.getsize(expected_file) > 0:
@@ -274,7 +259,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                         await update.message.reply_audio(audio=audio_file, title=video_title, performer="Yt Downloader")
                     await status.delete()
                 else:
-                    await status.edit_text("⚠️ Connection lost during file pipeline. Re-send link to try again.")
+                    await status.edit_text("⚠️ Connection dropped by node. Please re-send the link to fetch again.")
                 
                 if os.path.exists(expected_file):
                     os.remove(expected_file)
@@ -285,11 +270,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text("Bhai, sahi YouTube link bhejo ya keyboard se option select karo!")
 
 def main():
+    # Pre-load proxies directly into RAM before bot starts listening
+    print("Pre-loading SOCKS5 proxy bank into RAM cache...")
+    update_local_proxy_cache()
+
     app = Application.builder().token(BOT_TOKEN).concurrent_updates(True).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Bot is starting with Concurrent Match Engine V37...")
+    print("Bot is starting with RAM-Cached SOCKS5 Engine V38...")
     app.run_polling()
 
 if __name__ == "__main__":
