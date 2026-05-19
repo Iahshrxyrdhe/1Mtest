@@ -246,4 +246,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                             write_timeout=60 # Extended telegram API upload connection window
                         )
                     await status.delete()
-            else:
+                else:
+                    await status.edit_text("❌ Audio extraction timed out on both proxy and fallback channels. Please re-send link!")
+                
+                if os.path.exists(expected_file): os.remove(expected_file)
+            except Exception as e:
+                await status.edit_text(f"❌ Audio processing error: {e}")
+    else:
+        await update.message.reply_text("Bhai, sahi YouTube link bhejo!")
+
+def main():
+    app = Application.builder().token(BOT_TOKEN).concurrent_updates(True).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    print("Bot is starting with Bulletproof Split Audio Pipeline V46...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
