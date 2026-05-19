@@ -20,6 +20,7 @@ import logging
 import yt_dlp
 import urllib.request
 import random
+import asyncio  # 👈 Parallel execution ke liye zaroori hai
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -31,7 +32,7 @@ TOKEN_PART1 = "8919342904:"
 TOKEN_PART2 = "AAF5UdlNBRpW0gZloN2vDClCWBqdITn9afo"
 BOT_TOKEN = TOKEN_PART1 + TOKEN_PART2
 
-# 🌐 FUNCTION: Databay GitHub se direct fresh SOCKS5 proxies load karna (No-Crash)
+# 🌐 FUNCTION: SOCKS5 proxies load karna (Synchronous function ko handler block nahi karne dega)
 def load_socks5_pool():
     url = "https://raw.githubusercontent.com/databay-labs/free-proxy-list/master/socks5.txt"
     try:
@@ -43,72 +44,75 @@ def load_socks5_pool():
             html = response.read().decode('utf-8')
             proxies = [line.strip() for line in html.splitlines() if line.strip()]
             if proxies:
-                logger.info(f"✅ Successfully loaded {len(proxies)} fresh SOCKS5 proxies from Databay!")
                 return proxies
     except Exception as e:
         logger.error(f"❌ Failed to fetch socks5.txt from GitHub: {e}")
     return []
 
+# 🔥 PARALLEL ENGINE: Yeh function background thread mein chalega taaki main bot block na ho
+def run_yt_dlp_parallel(url, proxy_url):
+    ydl_opts = {
+        'quiet': True, 
+        'no_warnings': True,
+        'socket_timeout': 4, 
+        'retries': 1,
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'nocheckcertificate': True,
+        'extractor_args': {
+            'youtube': {
+                'clients': ['tv', 'mweb', 'ios'],
+                'skip': ['dash', 'hls']
+            }
+        }
+    }
+    if proxy_url:
+        ydl_opts['proxy'] = proxy_url
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        return ydl.extract_info(url, download=False)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "🚀 **Yt Downloader Engine V28 (Universal Master Patch) Active!**\n\n"
-        "Link bhejo bhai. SOCKS5 Rotating Pool aur Universal Fallback Engine dono ek sath set hain!"
+        "🚀 **Yt Downloader Engine V29 (Parallel Multi-User Mode) Active!**\n\n"
+        "Link bhejo bhai. Ab saare users ka kaam ek sath parallel mein hoga, koi queue nahi lagegi!"
     )
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     url = update.message.text
     
     if "youtube.com" in url or "youtu.be" in url:
-        status = await update.message.reply_text("⏳ Databay Pool se SOCKS5 node connect ho raha hai...")
+        status = await update.message.reply_text("⏳ Connecting to SOCKS5 node parallelly...")
         
-        # Fresh proxies load ho rahi hain
-        proxy_pool = load_socks5_pool()
+        # Proxies fetch karne ke sync operation ko async pool mein run kar rahe hain
+        loop = asyncio.get_running_loop()
+        proxy_pool = await loop.run_in_executor(None, load_socks5_pool)
         
         if not proxy_pool:
-            await status.edit_text("⚠️ Proxy pool busy, direct link extraction try kar raha hoon...")
             proxy_pool = [None]
         else:
             random.shuffle(proxy_pool)
-            proxy_pool = proxy_pool[:15] # Top 15 proxies test karenge fast cycle ke liye
+            proxy_pool = proxy_pool[:10] # Top 10 fast checks for speed
 
         info = None
         extracted_successfully = False
 
-        # 🔥 SMART LOOP: Proxies ko fast cycle par test karna
+        # 🔥 SMART ASYNC LOOP: Har proxy test background thread mein chalegi
         for i, raw_proxy in enumerate(proxy_pool):
             proxy_url = f"socks5://{raw_proxy}" if raw_proxy else None
             
             try:
                 if proxy_url:
-                    await status.edit_text(f"⏳ Testing Proxy Node [{i+1}/{len(proxy_pool)}]: {raw_proxy}...")
+                    await status.edit_text(f"⏳ Testing Node [{i+1}/{len(proxy_pool)}] parallelly...")
                 
-                ydl_opts = {
-                    'quiet': True, 
-                    'no_warnings': True,
-                    'socket_timeout': 4, # Max 4 second wait karega slow proxy par
-                    'retries': 1,
-                    'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                    'nocheckcertificate': True,
-                    'extractor_args': {
-                        'youtube': {
-                            'clients': ['tv', 'mweb', 'ios'],
-                            'skip': ['dash', 'hls']
-                        }
-                    }
-                }
-                
-                if proxy_url:
-                    ydl_opts['proxy'] = proxy_url
-
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                    if info:
-                        extracted_successfully = True
-                        break # Link milte hi loop se bahar
+                # 🚀 MAIN MAGIC: run_in_executor ke kaaran ye loop baki users ko block nahi karega!
+                info = await loop.run_in_executor(None, run_yt_dlp_parallel, url, proxy_url)
+                if info:
+                    extracted_successfully = True
+                    break 
             except Exception:
-                continue # Fail hone par agla node check karega bina ruke
+                continue 
 
-        # 🔥 RESPONSE BUILDER (Direct Hyperlinks + Universal Fallback Patch)
+        # 🔥 RESPONSE BUILDER
         if extracted_successfully and info:
             try:
                 video_title = info.get('title', 'Video File')
@@ -119,7 +123,6 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 link_360p = None
                 fallback_url = info.get('url')
 
-                # Pre-merged streams filter kar rahe hain
                 for f in formats:
                     if f.get('vcodec') != 'none' and f.get('acodec') != 'none':
                         raw_url = f.get('url')
@@ -129,14 +132,12 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                             elif f.get('height') == 720:
                                 link_720p = raw_url
 
-                # Links HTML syntax text build ho raha hai
                 links_text = ""
                 if link_720p:
                     links_text += f"🔹 <a href='{link_720p}'>👉 CLICK HERE TO DOWNLOAD (HD Quality) 👈</a>\n\n"
                 if link_360p:
                     links_text += f"🔹 <a href='{link_360p}'>👉 CLICK HERE TO DOWNLOAD (360p SD) 👈</a>\n\n"
                 
-                # 🛡️ THE UNIVERSAL FALLBACK INJECTION: Agar split format chupaya ho toh direct raw link do
                 if not link_720p and not link_360p:
                     best_stream = fallback_url
                     if not best_stream and formats:
@@ -144,13 +145,11 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                             if fmt.get('url') and ('googlevideo.com' in fmt.get('url') or 'manifest' in fmt.get('url')):
                                 best_stream = fmt.get('url')
                                 break
-                    
                     if best_stream:
                         links_text += f"🔹 <a href='{best_stream}'>👉 CLICK HERE TO DOWNLOAD (Best Available Quality) 👈</a>\n\n"
                     else:
                         links_text += f"⚠️ <i>Is video ka format strict restricted mila bahi.</i>\n\n"
 
-                # Clean text structure user instructions ke sath
                 guide_caption = (
                     f"🎯 <b>Video Title:</b> {video_title}\n\n"
                     f"👇 <b>DOWNLOAD LINKS:</b>\n"
@@ -164,7 +163,6 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
                 await status.delete()
 
-                # Parse mode HTML se text hyperlinks click-ready ho jayenge
                 if thumbnail_url:
                     await update.message.reply_photo(photo=thumbnail_url, caption=guide_caption, parse_mode="HTML")
                 else:
@@ -172,16 +170,17 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             except Exception as send_error:
                 await update.message.reply_text(f"❌ Sending Link Error: {send_error}")
         else:
-            await status.edit_text("❌ Saari tested proxies blocked mili bhai. Naye pool ke liye ek baar fir se link bhej do!")
+            await status.edit_text("❌ Saari tested proxies blocked mili bhai. Dobara try karein!")
     else:
         await update.message.reply_text("Bhai, sahi YouTube video link bhejo!")
 
 def main():
-    app = Application.builder().token(BOT_TOKEN).build()
+    # 🚀 BLOCKING PREVENTION: Application builder mein concurrent updates allowed kar rahe hain
+    app = Application.builder().token(BOT_TOKEN).concurrent_updates(True).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_video))
     
-    print("Bot is starting with Universal Master Engine...")
+    print("Bot is starting with Multi-User Parallel Engine...")
     app.run_polling()
 
 if __name__ == "__main__":
