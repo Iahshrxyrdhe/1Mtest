@@ -4,7 +4,8 @@ on:
   push:
     branches: [ main, master ]
   schedule:
-    - cron: '0 */5 * * *'
+    # ⏱️ CRITICAL FIX: Ab GitHub har 3 ghante mein automatic naya worker run karega
+    - cron: '0 */3 * * *'
 
 jobs:
   run-bot:
