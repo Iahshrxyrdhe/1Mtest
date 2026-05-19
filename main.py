@@ -47,7 +47,7 @@ def load_socks5_pool():
             url, 
             headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         )
-        with urllib.request.urlopen(req, timeout=5) as response:
+        with urllib.request.urlopen(req, timeout=4) as response:
             html = response.read().decode('utf-8')
             proxies = [line.strip() for line in html.splitlines() if line.strip()]
             if proxies:
@@ -56,12 +56,12 @@ def load_socks5_pool():
         logger.error(f"❌ Failed to fetch socks5.txt from GitHub: {e}")
     return []
 
-# 🔥 PARALLEL ENGINE: Video details extract karna (Super Fast Timeout)
-def run_yt_dlp_parallel(url, proxy_url):
+# 🔥 PARALLEL ENGINE: Core extractor options
+def run_yt_dlp_parallel(url, proxy_url=None):
     ydl_opts = {
         'quiet': True, 
         'no_warnings': True,
-        'socket_timeout': 1.0, # ⚡ CRITICAL: Sirf 1 second wait karega, slow proxy turant skip hogi!
+        'socket_timeout': 2.0, 
         'retries': 0,
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'nocheckcertificate': True,
@@ -78,13 +78,12 @@ def run_yt_dlp_parallel(url, proxy_url):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(url, download=False)
 
-# 🔥 AUDIO DOWNLOAD ENGINE: No FFmpeg dependency, raw high-quality fetch via proxy
+# 🔥 AUDIO DOWNLOAD ENGINE: Direct or Proxy download helper
 def download_audio_with_proxy(url, proxy_url, output_filename):
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
-        'socket_timeout': 10,
-        # 🛠️ PATCH: m4a raw format download karenge bina conversion ke, FFmpeg error permanent khatam!
+        'socket_timeout': 15,
         'format': 'bestaudio[ext=m4a]/bestaudio/best',
         'outtmpl': output_filename,
         'nocheckcertificate': True,
@@ -107,11 +106,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     check_runtime()
     context.user_data['mode'] = None
     
-    # 🎛️ User ke keypad mein aane wale professional buttons
     keyboard = [
         [KeyboardButton("📹 YT VIDEO DOWNLOADER"), KeyboardButton("🎵 AUDIO DOWNLOADER")]
     ]
-    # resize_keyboard=True se buttons keypad ke size ke mutabik chhote aur professional ho jaate hain
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, input_field_placeholder="Select Mode From Keyboard")
     
     await update.message.reply_text(
@@ -119,12 +116,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         reply_markup=reply_markup
     )
 
-# 📥 MAIN MESSAGE HANDLER (Handles text menu & links)
+# 📥 MAIN MESSAGE HANDLER
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     check_runtime()
     text = update.message.text
 
-    # 1. KEYBOARD BUTTON COMMANDS CHECK
     if text == "📹 YT VIDEO DOWNLOADER":
         context.user_data['mode'] = 'video'
         await update.message.reply_text("📥 **YT VIDEO DOWNLOADER MODE ACTIVE**\n\nNow send me any YouTube video link:")
@@ -134,43 +130,51 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text("📥 **AUDIO DOWNLOADER MODE ACTIVE**\n\nNow send me any YouTube video link (Max 50MB):")
         return
 
-    # 2. IF THE INPUT IS A LINK
     if "youtube.com" in text or "youtu.be" in text:
-        current_mode = context.user_data.get('mode')
+        current_mode = context.user_data.get('get_mode', context.user_data.get('mode'))
         if not current_mode:
             await update.message.reply_text("Bhai, pehle niche keyboard se ek mode select karo (Video ya Audio)!")
             return
 
-        status = await update.message.reply_text("⏳ Processing link via super-fast nodes...")
-        
+        status = await update.message.reply_text("⚡ Processing link instantly...")
         loop = asyncio.get_running_loop()
-        proxy_pool = await loop.run_in_executor(None, load_socks5_pool)
         
-        if not proxy_pool:
-            proxy_pool = [None]
-        else:
-            random.shuffle(proxy_pool)
-            proxy_pool = proxy_pool[:12] # Checking top 12 parallelly
-
         info = None
         extracted_successfully = False
         selected_proxy = None
 
-        for i, raw_proxy in enumerate(proxy_pool):
-            proxy_url = f"socks5://{raw_proxy}" if raw_proxy else None
-            try:
-                # Speed hack: text updates fast kiye taaki process smoothly aage badhe
-                await status.edit_text(f"⏳ Syncing Server Node [{i+1}/{len(proxy_pool)}]...")
-                info = await loop.run_in_executor(None, run_yt_dlp_parallel, text, proxy_url)
-                if info:
-                    extracted_successfully = True
-                    selected_proxy = proxy_url
-                    break 
-            except Exception:
-                continue 
+        # 🚀 STEP 1: DIRECT NO-PROXY TRY (Super-Fast Option)
+        try:
+            info = await loop.run_in_executor(None, run_yt_dlp_parallel, text, None)
+            if info:
+                extracted_successfully = True
+                selected_proxy = None
+        except Exception as direct_err:
+            logger.info(f"Direct connection blocked or failed, shifting to proxy pool... Error: {direct_err}")
+
+        # 🛡️ STEP 2: BACKUP PROXY POOL (Only runs if direct try fails)
+        if not extracted_successfully:
+            await status.edit_text("⏳ Direct line busy, syncing backup server nodes...")
+            proxy_pool = await loop.run_in_executor(None, load_socks5_pool)
+            
+            if proxy_pool:
+                random.shuffle(proxy_pool)
+                proxy_pool = proxy_pool[:8] # Filter top 8 for speed
+                
+                for i, raw_proxy in enumerate(proxy_pool):
+                    proxy_url = f"socks5://{raw_proxy}" if raw_proxy else None
+                    try:
+                        await status.edit_text(f"⏳ Testing Backup Node [{i+1}/{len(proxy_pool)}]...")
+                        info = await loop.run_in_executor(None, run_yt_dlp_parallel, text, proxy_url)
+                        if info:
+                            extracted_successfully = True
+                            selected_proxy = proxy_url
+                            break 
+                    except Exception:
+                        continue 
 
         if not extracted_successfully or not info:
-            await status.edit_text("❌ Saari tested proxies blocked mili bhai. Dobara try karein!")
+            await status.edit_text("❌ Connection timeout or link restricted. Please try again in a moment!")
             return
 
         # 📹 VIDEO MODE INTERACTION
@@ -243,22 +247,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     await status.edit_text("⚠️ **THIS AUDIO SIZE IS OUT OF LIMIT**")
                     return
 
-                await status.edit_text("📥 Downloading raw high-quality audio stream...")
+                await status.edit_text("📥 Fetching audio stream directly to chat...")
                 
                 unique_id = random.randint(1000, 9999)
-                # 🛠️ PATCH: File name ko .m4a rakha taaki FFmpeg conversion skip ho jaye
                 expected_file = f"audio_{unique_id}.m4a"
 
+                # Download using the same bypass setup that worked for extraction
                 await loop.run_in_executor(None, download_audio_with_proxy, text, selected_proxy, expected_file)
 
                 if os.path.exists(expected_file) and os.path.getsize(expected_file) > 0:
                     await status.edit_text("📤 Uploading audio player to chat...")
                     with open(expected_file, 'rb') as audio_file:
-                        # Direct audio player format mein file delivered ho jayegi
                         await update.message.reply_audio(audio=audio_file, title=video_title, performer="Yt Downloader")
                     await status.delete()
                 else:
-                    await status.edit_text("⚠️ Extraction node failed, please try again.")
+                    await status.edit_text("⚠️ Connection lost during download. Please try the link again.")
                 
                 if os.path.exists(expected_file):
                     os.remove(expected_file)
@@ -274,7 +277,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Bot is starting with Keypad Menu & FFmpeg Bypass Engine V34...")
+    print("Bot is starting with Intelligent Direct-First Engine V35...")
     app.run_polling()
 
 if __name__ == "__main__":
