@@ -18,12 +18,12 @@ apscheduler.util.astimezone = fixed_astimezone
 
 import logging
 import yt_dlp
+import urllib.request
 import random
 import asyncio
 import time
 import sys
 import os
-import re
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -39,46 +39,78 @@ BOT_TOKEN = TOKEN_PART1 + TOKEN_PART2
 START_TIME = time.time()
 MAX_RUN_TIME = 170 * 60  # 170 Minutes (2 Hours 50 Minutes)
 
-# 🔥 LIST OF HIGH-SPEED INVIDIOUS MIRRORS FOR EXTRACTION BYPASS
-MIRRORS = [
-    "https://inv.tux.digital",
-    "https://yewtu.be",
-    "https://invidious.nerdvpn.de",
-    "https://invidious.flokinet.to",
-    "https://inv.vern.cc",
-    "https://iv.melmac.space"
-]
+# 🧠 GLOBAL RAM CACHE FOR BOTH PROXY TYPES
+GLOBAL_PROXY_POOL = []
 
-def run_yt_dlp_direct(url):
-    # Ekdam fresh random desktop aur mobile headers simulation
-    user_agents = [
-        "Mozilla/5.0 (Android 13; Mobile; rv:109.0) Gecko/114.0 Firefox/114.0",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1",
-        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36"
-    ]
+def load_all_proxies_into_ram():
+    global GLOBAL_PROXY_POOL
+    socks5_url = "https://raw.githubusercontent.com/databay-labs/free-proxy-list/master/socks5.txt"
+    socks4_url = "https://raw.githubusercontent.com/databay-labs/free-proxy-list/master/socks4.txt"
     
+    temp_pool = []
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    
+    # 🎯 SOCKS5 Load System
+    try:
+        req = urllib.request.Request(socks5_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=6) as response:
+            lines = response.read().decode('utf-8').splitlines()
+            for line in lines:
+                if line.strip():
+                    temp_pool.append(f"socks5://{line.strip()}")
+        logger.info("✅ SOCKS5 Bank synced inside RAM.")
+    except Exception as e:
+        logger.error(f"❌ SOCKS5 download fail: {e}")
+
+    # 🎯 SOCKS4 Load System
+    try:
+        req = urllib.request.Request(socks4_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=6) as response:
+            lines = response.read().decode('utf-8').splitlines()
+            for line in lines:
+                if line.strip():
+                    temp_pool.append(f"socks4://{line.strip()}")
+        logger.info("✅ SOCKS4 Bank synced inside RAM.")
+    except Exception as e:
+        logger.error(f"❌ SOCKS4 download fail: {e}")
+
+    if temp_pool:
+        GLOBAL_PROXY_POOL = temp_pool
+        logger.info(f"🔥 Total Dynamic Proxies Active in RAM: {len(GLOBAL_PROXY_POOL)}")
+
+# 🔥 SINGLE PROXY METRIC WORKER
+def extract_metric(url, proxy_url):
     ydl_opts = {
         'quiet': True, 
         'no_warnings': True,
-        'socket_timeout': 6.0, 
-        'retries': 2,
+        'socket_timeout': 1.5, # Super strict 1.5s timeout to avoid dead locks
+        'retries': 0,
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'nocheckcertificate': True,
-        'http_headers': {
-            'User-Agent': random.choice(user_agents),
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-        },
+        'proxy': proxy_url,
         'extractor_args': {
             'youtube': {
-                # Sirf embedded aur tv clients jo bina login ke chalte hain
-                'clients': ['tvhtml5', 'web_embedded', 'android_embed'],
+                'clients': ['android', 'web_embedded', 'tvhtml5', 'ios'],
                 'skip': ['dash', 'hls']
             }
         }
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(url, download=False)
+
+# 🔥 CORE FILE DOWNLOAD PIPELINE via THE WINNING PROXY
+def download_audio_pipeline(url, proxy_url, output_filename):
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'socket_timeout': 15,
+        'format': 'bestaudio[ext=m4a]/bestaudio/best',
+        'outtmpl': output_filename,
+        'nocheckcertificate': True,
+        'proxy': proxy_url
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
 
 # 🛡️ AUTOMATIC AUTO-EXIT CHECKER
 def check_runtime():
@@ -104,6 +136,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 # 📥 MAIN MESSAGE HANDLER
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    global GLOBAL_PROXY_POOL
     check_runtime()
     text = update.message.text
 
@@ -122,44 +155,59 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await update.message.reply_text("Bhai, pehle niche keyboard se ek mode select karo (Video ya Audio)!")
             return
 
-        status = await update.message.reply_text("⚡ Bypassing restrictions instantly...")
+        status = await update.message.reply_text("⏳ Syncing SOCKS4/5 Dynamic Pools...")
+        
+        if not GLOBAL_PROXY_POOL:
+            load_all_proxies_into_ram()
+            
+        if not GLOBAL_PROXY_POOL:
+            await status.edit_text("❌ Data pools are currently un-reachable. Try again in 10 seconds.")
+            return
+
+        # Shuffle dynamic pool completely
+        working_pool = list(GLOBAL_PROXY_POOL)
+        random.shuffle(working_pool)
+
+        info = None
+        winning_proxy = None
+        
+        # ⚡ BATCH SEQUENCER: 5-5 proxies ke chunks bana kar fast scan chalayenge
+        batch_size = 5
+        total_proxies_to_test = min(len(working_pool), 60) # Max 60 proxies total check karenge sequential batches mein
+        
+        await status.edit_text("🚀 Scanning multi-proxy channels in fast sequence...")
+
         loop = asyncio.get_running_loop()
         
-        info = None
-        extracted = False
-
-        # 🚀 ATTEMPT 1: Direct High-Speed Embedded Client (No Proxy Delay)
-        try:
-            info = await loop.run_in_executor(None, run_yt_dlp_direct, text)
-            if info:
-                extracted = True
-        except Exception as e:
-            logger.info(f"Direct route throttled: {e}. Trying Mirror Network...")
-
-        # 🛡️ ATTEMPT 2: Ultra-Fast Invidious Mirror Routing (If direct fails)
-        if not extracted:
-            await status.edit_text("🔄 Routing through secondary bypass line...")
-            video_id_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11}).*', text)
-            if video_id_match:
-                video_id = video_id_match.group(1)
-                shuffled_mirrors = list(MIRRORS)
-                random.shuffle(shuffled_mirrors)
-                
-                for mirror in shuffled_mirrors[:3]: # Try top 3 mirrors instantly
+        for i in range(0, total_proxies_to_test, batch_size):
+            current_batch = working_pool[i:i+batch_size]
+            await status.edit_text(f"⚡ Testing Router Cluster [{i+batch_size}/{total_proxies_to_test}]...")
+            
+            # Fire 5 workers simultaneously in this specific batch
+            tasks = [loop.run_in_executor(None, extract_metric, text, proxy) for proxy in current_batch]
+            
+            try:
+                # First proxy to clear within 2.5s window breaks out the cluster loop
+                for completed_task in asyncio.as_completed(tasks, timeout=2.5):
                     try:
-                        mirror_url = f"{mirror}/watch?v={video_id}"
-                        info = await loop.run_in_executor(None, run_yt_dlp_direct, mirror_url)
-                        if info:
-                            extracted = True
+                        result = await completed_task
+                        if result:
+                            info = result
+                            winning_proxy = current_batch[tasks.index(completed_task)]
                             break
                     except Exception:
                         continue
+            except asyncio.TimeoutError:
+                pass
+            
+            if info:
+                break # Complete breakout, match is found!
 
-        if not extracted or not info:
-            await status.edit_text("❌ YouTube network is busy. Please copy the link again and re-send it!")
+        if not info:
+            await status.edit_text("❌ All selected SOCKS4/5 nodes are busy. Send the link again to sweep a fresh pool batch!")
             return
 
-        # 📹 VIDEO MODE
+        # 📹 VIDEO MODE INTERACTION
         if current_mode == 'video':
             try:
                 video_title = info.get('title', 'Video File')
@@ -212,7 +260,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             except Exception as e:
                 await status.edit_text(f"❌ Video link builder error: {e}")
 
-        # 🎵 AUDIO MODE
+        # 🎵 AUDIO MODE INTERACTION
         elif current_mode == 'audio':
             try:
                 video_title = info.get('title', 'Audio File')
@@ -229,30 +277,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     await status.edit_text("⚠️ **THIS AUDIO SIZE IS OUT OF LIMIT**")
                     return
 
-                await status.edit_text("📥 Fetching raw stream directly to cloud...")
+                await status.edit_text("📥 Extracting and streaming audio file via verified proxy...")
                 
                 unique_id = random.randint(1000, 9999)
                 expected_file = f"audio_{unique_id}.m4a"
 
-                # Direct download with strict spoofing headers
-                ydl_opts_dl = {
-                    'quiet': True,
-                    'no_warnings': True,
-                    'format': 'bestaudio[ext=m4a]/bestaudio/best',
-                    'outtmpl': expected_file,
-                    'nocheckcertificate': True,
-                }
-                
-                with yt_dlp.YoutubeDL(ydl_opts_dl) as ydl:
-                    await loop.run_in_executor(None, ydl.download, [text])
+                # Direct download mapping with the identical proxy that cracked the extraction
+                await loop.run_in_executor(None, download_audio_pipeline, text, winning_proxy, expected_file)
 
                 if os.path.exists(expected_file) and os.path.getsize(expected_file) > 0:
-                    await status.edit_text("📤 Sending audio file...")
+                    await status.edit_text("📤 Uploading audio player to Telegram...")
                     with open(expected_file, 'rb') as audio_file:
                         await update.message.reply_audio(audio=audio_file, title=video_title, performer="Yt Downloader")
                     await status.delete()
                 else:
-                    await status.edit_text("⚠️ Network lag. Please send the link once more.")
+                    await status.edit_text("⚠️ Connection dropped by proxy line during data pipe. Re-send link!")
                 
                 if os.path.exists(expected_file):
                     os.remove(expected_file)
@@ -263,11 +302,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text("Bhai, sahi YouTube link bhejo ya keyboard se option select karo!")
 
 def main():
+    print("Pre-loading combined SOCKS4 & SOCKS5 databanks into RAM memory...")
+    load_all_proxies_into_ram()
+
     app = Application.builder().token(BOT_TOKEN).concurrent_updates(True).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Bot is starting with Turbo Direct-Bypass Engine V39...")
+    print("Bot is starting with Multi-File Batch Sequence Engine V40...")
     app.run_polling()
 
 if __name__ == "__main__":
