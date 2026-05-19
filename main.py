@@ -23,6 +23,7 @@ import random
 import asyncio
 import time
 import sys
+import os
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -34,7 +35,7 @@ TOKEN_PART1 = "8919342904:"
 TOKEN_PART2 = "AAF5UdlNBRpW0gZloN2vDClCWBqdITn9afo"
 BOT_TOKEN = TOKEN_PART1 + TOKEN_PART2
 
-# ⏱️ START TIME TRACKER (Auto-Exit Loop Configuration)
+# ⏱️ START TIME TRACKER
 START_TIME = time.time()
 MAX_RUN_TIME = 170 * 60  # 170 Minutes (2 Hours 50 Minutes)
 
@@ -55,7 +56,7 @@ def load_socks5_pool():
         logger.error(f"❌ Failed to fetch socks5.txt from GitHub: {e}")
     return []
 
-# 🔥 PARALLEL ENGINE: Background process
+# 🔥 PARALLEL ENGINE: Video details extract karna
 def run_yt_dlp_parallel(url, proxy_url):
     ydl_opts = {
         'quiet': True, 
@@ -77,22 +78,43 @@ def run_yt_dlp_parallel(url, proxy_url):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(url, download=False)
 
-# 🛡️ AUTOMATIC AUTO-EXIT CHECKER: Har message par check karega time limit
+# 🔥 VOICE NOTE DOWNLOAD ENGINE: OGG/Opus format mein download karne ke liye
+def download_voice_locally(url, proxy_url, output_filename):
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'socket_timeout': 5,
+        # Telegram Voice Note ke liye best format extract kar rahe hain
+        'format': 'bestaudio/best',
+        'outtmpl': output_filename,
+        'nocheckcertificate': True,
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'opus', # Voice note ke liye opus sabse best hai
+        }],
+    }
+    if proxy_url:
+        ydl_opts['proxy'] = proxy_url
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+
+# 🛡️ AUTOMATIC AUTO-EXIT CHECKER
 def check_runtime():
     elapsed_time = time.time() - START_TIME
     if elapsed_time >= MAX_RUN_TIME:
-        logger.info("⏳ 170 minutes over! Safely exiting to allow GitHub Actions to trigger fresh workflow...")
-        sys.exit(0) # Code safely closed, workflow ends clean
+        logger.info("⏳ 170 minutes over! Safely exiting...")
+        sys.exit(0)
 
+# 🚀 WELCOME MESSAGE
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     check_runtime()
     await update.message.reply_text(
-        "🚀 **Yt Downloader Engine V30 (24/7 Loop Edition) Active!**\n\n"
-        "Link bhejo bhai. Parallel core, direct caption links aur auto-restart pipeline set hai!"
+        "Hey ! Your Welcome, Give me any youtube video link for Download I will give you the Download link of that video"
     )
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    check_runtime() # Check timer before starting heavy operations
+    check_runtime()
     url = update.message.text
     
     if "youtube.com" in url or "youtu.be" in url:
@@ -109,6 +131,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
         info = None
         extracted_successfully = False
+        selected_proxy = None
 
         for i, raw_proxy in enumerate(proxy_pool):
             proxy_url = f"socks5://{raw_proxy}" if raw_proxy else None
@@ -120,6 +143,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 info = await loop.run_in_executor(None, run_yt_dlp_parallel, url, proxy_url)
                 if info:
                     extracted_successfully = True
+                    selected_proxy = proxy_url
                     break 
             except Exception:
                 continue 
@@ -134,6 +158,9 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 link_720p = None
                 link_360p = None
                 fallback_url = info.get('url')
+                
+                audio_url = None
+                audio_size_bytes = 0
 
                 for f in formats:
                     if f.get('vcodec') != 'none' and f.get('acodec') != 'none':
@@ -143,6 +170,10 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                                 link_360p = raw_url
                             elif f.get('height') == 720:
                                 link_720p = raw_url
+                    
+                    if f.get('vcodec') == 'none' and f.get('acodec') != 'none':
+                        audio_url = f.get('url')
+                        audio_size_bytes = f.get('filesize') or f.get('filesize_approx') or 0
 
                 links_text = ""
                 if link_720p:
@@ -159,18 +190,30 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                                 break
                     if best_stream:
                         links_text += f"🔹 <a href='{best_stream}'>👉 CLICK HERE TO DOWNLOAD (Best Available Quality) 👈</a>\n\n"
+
+                # 🎛️ SMART AUDIO TO VOICE NOTE ROUTING
+                audio_caption_part = ""
+                send_voice_direct = False
+                audio_size_mb = audio_size_bytes / (1024 * 1024) if audio_size_bytes else 0
+
+                if audio_url:
+                    if audio_size_mb > 50:
+                        audio_caption_part = f"🎵 <a href='{audio_url}'>👉 CLICK HERE TO DOWNLOAD AUDIO (MP3/M4A > 50MB) 👈</a>\n\n"
                     else:
-                        links_text += f"⚠️ <i>Is video ka format strict restricted mila bahi.</i>\n\n"
+                        send_voice_direct = True
+                        audio_caption_part = f"🎙️ <b>Audio Status:</b> 50MB se chota hai, chat mein direct **Voice Note** ban kar aa raha hai! 👇\n\n"
+                else:
+                    audio_caption_part = f"⚠️ <i>Audio format not found separately.</i>\n\n"
 
                 guide_caption = (
                     f"🎯 <b>Video Title:</b> {video_title}\n\n"
-                    f"👇 <b>DOWNLOAD LINKS:</b>\n"
+                    f"👇 <b>VIDEO DOWNLOAD LINKS:</b>\n"
                     f"{links_text}"
+                    f"👇 <b>AUDIO/VOICE DOWNLOAD:</b>\n"
+                    f"{audio_caption_part}"
                     f"📖 <b>DOWNLOAD KAISE KAREIN? (EASY GUIDE):</b>\n"
-                    f"1️⃣ Upar diye gaye blue color ke <b>DOWNLOAD LINK</b> text par click karein.\n"
-                    f"2️⃣ Aapke browser (Chrome) mein video play hona start ho jayegi.\n"
-                    f"3️⃣ Video ke upar <b>Long Press (thodi der dabakar rakhein)</b> aur <b>'Download Video'</b> ka option aayega, uspar click karke save kar lein! 🚀\n\n"
-                    f"<i>Tip: Agar long press nahi chal raha, toh video ke niche right side mein 3-dots (...) par click karke Download daba dein.</i>"
+                    f"1️⃣ Upar diye gaye blue color ke link text par click karein.\n"
+                    f"2️⃣ Browser mein file open hote hi <b>Long Press</b> karein ya niche right side mein <b>3-dots (...)</b> par click karke <b>Download</b> daba dein! 🚀"
                 )
 
                 await status.delete()
@@ -179,6 +222,35 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     await update.message.reply_photo(photo=thumbnail_url, caption=guide_caption, parse_mode="HTML")
                 else:
                     await update.message.reply_text(text=guide_caption, parse_mode="HTML", disable_web_page_preview=True)
+
+                # 🔥 DIRECT VOICE NOTE UPLOAD ENGINE (If size <= 50MB)
+                if send_voice_direct:
+                    voice_status = await update.message.reply_text("📥 Audio 50MB se chota hai. Isko Voice Note (.ogg) mein convert karke bhej raha hoon...")
+                    
+                    unique_id = random.randint(1000, 9999)
+                    # yt-dlp automatically postprocess karke .opus banayega jise TG voice note bolta hai
+                    base_filename = f"voice_{unique_id}"
+                    expected_file = f"{base_filename}.opus"
+                    
+                    try:
+                        # Background main file extract ho rahi hai
+                        await loop.run_in_executor(None, download_voice_locally, url, selected_proxy, base_filename)
+                        
+                        # Check aur upload logic
+                        if os.path.exists(expected_file) and os.path.getsize(expected_file) > 0:
+                            with open(expected_file, 'rb') as voice_file:
+                                # 🎙️ MASTER CHANGE: reply_voice se ab ye pure voice note waveform ke sath jayega
+                                await update.message.reply_voice(voice=voice_file)
+                            await voice_status.delete()
+                        else:
+                            await voice_status.edit_text("⚠️ Voice conversion template failed, raw format skip ho gaya.")
+                    except Exception as voice_err:
+                        await voice_status.edit_text(f"⚠️ Voice conversion error: {voice_err}")
+                    finally:
+                        # Server cleanup
+                        if os.path.exists(expected_file):
+                            os.remove(expected_file)
+
             except Exception as send_error:
                 await update.message.reply_text(f"❌ Sending Link Error: {send_error}")
         else:
@@ -191,7 +263,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_video))
     
-    print("Bot is starting with Multi-User Loop Engine...")
+    print("Bot is starting with Smart Voice Note Engine...")
     app.run_polling()
 
 if __name__ == "__main__":
