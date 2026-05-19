@@ -78,24 +78,21 @@ def run_yt_dlp_parallel(url, proxy_url):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(url, download=False)
 
-# 🔥 VOICE NOTE DOWNLOAD ENGINE: OGG/Opus format mein download karne ke liye
-def download_voice_locally(url, proxy_url, output_filename):
+# 🔥 VOICE DOWNLOAD ENGINE: 🔥 NO-PROXY BYPASS (Timeout se bachne ke liye direct high-speed download)
+def download_voice_locally(url, output_filename):
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
-        'socket_timeout': 5,
-        # Telegram Voice Note ke liye best format extract kar rahe hain
+        'socket_timeout': 30, # High timeout backup
         'format': 'bestaudio/best',
         'outtmpl': output_filename,
         'nocheckcertificate': True,
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'opus', # Voice note ke liye opus sabse best hai
+            'preferredcodec': 'opus',
         }],
     }
-    if proxy_url:
-        ydl_opts['proxy'] = proxy_url
-
+    # No Proxy assigned here to get maximum GitHub Runner download speed (100MBps+)
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
 
@@ -198,18 +195,18 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
                 if audio_url:
                     if audio_size_mb > 50:
-                        audio_caption_part = f"🎵 <a href='{audio_url}'>👉 CLICK HERE TO DOWNLOAD AUDIO (MP3/M4A > 50MB) 👈</a>\n\n"
+                        # 50MB se upar hone par clean direct text link dikhega
+                        audio_caption_part = f"👇 <b>AUDIO DOWNLOAD LINK:</b>\n🔹 <a href='{audio_url}'>👉 CLICK HERE TO DOWNLOAD AUDIO (MP3/M4A) 👈</a>\n\n"
                     else:
                         send_voice_direct = True
-                        audio_caption_part = f"🎙️ <b>Audio Status:</b> 50MB se chota hai, chat mein direct **Voice Note** ban kar aa raha hai! 👇\n\n"
-                else:
-                    audio_caption_part = f"⚠️ <i>Audio format not found separately.</i>\n\n"
-
+                        # Clean execution: Ab caption mein koi faltu "Audio Status" text print nahi hoga!
+                        audio_caption_part = ""
+                
+                # Cleaned Guide Layout without annoying logs
                 guide_caption = (
                     f"🎯 <b>Video Title:</b> {video_title}\n\n"
                     f"👇 <b>VIDEO DOWNLOAD LINKS:</b>\n"
                     f"{links_text}"
-                    f"👇 <b>AUDIO/VOICE DOWNLOAD:</b>\n"
                     f"{audio_caption_part}"
                     f"📖 <b>DOWNLOAD KAISE KAREIN? (EASY GUIDE):</b>\n"
                     f"1️⃣ Upar diye gaye blue color ke link text par click karein.\n"
@@ -225,29 +222,25 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
                 # 🔥 DIRECT VOICE NOTE UPLOAD ENGINE (If size <= 50MB)
                 if send_voice_direct:
-                    voice_status = await update.message.reply_text("📥 Audio 50MB se chota hai. Isko Voice Note (.ogg) mein convert karke bhej raha hoon...")
+                    voice_status = await update.message.reply_text("📥 Processing Voice Note, sending directly to chat...")
                     
                     unique_id = random.randint(1000, 9999)
-                    # yt-dlp automatically postprocess karke .opus banayega jise TG voice note bolta hai
                     base_filename = f"voice_{unique_id}"
                     expected_file = f"{base_filename}.opus"
                     
                     try:
-                        # Background main file extract ho rahi hai
-                        await loop.run_in_executor(None, download_voice_locally, url, selected_proxy, base_filename)
+                        # 🚀 PIPELINE PATCH: Proxy hata di taaki GitHub network bypass speed se bina timeout download ho
+                        await loop.run_in_executor(None, download_voice_locally, url, base_filename)
                         
-                        # Check aur upload logic
                         if os.path.exists(expected_file) and os.path.getsize(expected_file) > 0:
                             with open(expected_file, 'rb') as voice_file:
-                                # 🎙️ MASTER CHANGE: reply_voice se ab ye pure voice note waveform ke sath jayega
                                 await update.message.reply_voice(voice=voice_file)
                             await voice_status.delete()
                         else:
-                            await voice_status.edit_text("⚠️ Voice conversion template failed, raw format skip ho gaya.")
+                            await voice_status.edit_text("⚠️ Voice note generation failed on runtime.")
                     except Exception as voice_err:
                         await voice_status.edit_text(f"⚠️ Voice conversion error: {voice_err}")
                     finally:
-                        # Server cleanup
                         if os.path.exists(expected_file):
                             os.remove(expected_file)
 
@@ -263,7 +256,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_video))
     
-    print("Bot is starting with Smart Voice Note Engine...")
+    print("Bot is starting with Smart Voice Note Engine V31...")
     app.run_polling()
 
 if __name__ == "__main__":
