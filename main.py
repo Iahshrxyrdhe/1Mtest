@@ -39,7 +39,6 @@ BOT_TOKEN = TOKEN_PART1 + TOKEN_PART2
 START_TIME = time.time()
 MAX_RUN_TIME = 170 * 60  # 170 Minutes (2 Hours 50 Minutes)
 
-# 🌐 FUNCTION: Sirf SOCKS5 list ko load karna
 def fetch_socks5_only():
     url = "https://raw.githubusercontent.com/databay-labs/free-proxy-list/master/socks5.txt"
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
@@ -55,12 +54,11 @@ def fetch_socks5_only():
         logger.error(f"❌ Failed to fetch SOCKS5 repository: {e}")
         return []
 
-# 🔥 YT-DLP CORE EXTRACTOR (SINGLE PROXY TEST)
 def test_single_proxy(url, proxy_url):
     ydl_opts = {
         'quiet': True, 
         'no_warnings': True,
-        'socket_timeout': 4.0,  # Proxy handshake ke liye kafi hai
+        'socket_timeout': 4.0,
         'retries': 0,
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'nocheckcertificate': True,
@@ -75,43 +73,61 @@ def test_single_proxy(url, proxy_url):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(url, download=False)
 
-# 🔥 CORE FILE DOWNLOAD PIPELINE (FOR AUDIO MODE)
+# 🔥 CORE FILE DOWNLOAD PIPELINE WITH AUTO-DIRECT FALLBACK
 def download_audio_pipeline(url, proxy_url, output_filename):
-    ydl_opts = {
+    # 🎯 Attempt 1: Proxy ke sath try karo
+    ydl_opts_proxy = {
         'quiet': True,
         'no_warnings': True,
-        'socket_timeout': 20,
+        'socket_timeout': 15,
         'format': 'bestaudio[ext=m4a]/bestaudio/best',
         'outtmpl': output_filename,
         'nocheckcertificate': True,
         'proxy': proxy_url
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
+    try:
+        logger.info(f"🔄 Trying audio download via proxy: {proxy_url}")
+        with yt_dlp.YoutubeDL(ydl_opts_proxy) as ydl:
+            ydl.download([url])
+            return True
+    except Exception as e:
+        logger.warning(f"⚠️ Proxy reset connection: {e}. Switching to Direct Cloud Pipeline instantly!")
+        
+        # 🎯 Attempt 2: Bypassing proxy and downloading directly via server network if proxy resets
+        ydl_opts_direct = {
+            'quiet': True,
+            'no_warnings': True,
+            'socket_timeout': 25,
+            'format': 'bestaudio[ext=m4a]/bestaudio/best',
+            'outtmpl': output_filename,
+            'nocheckcertificate': True,
+            'extractor_args': {
+                'youtube': {
+                    'clients': ['tvhtml5', 'android_embed'],
+                    'skip': ['dash', 'hls']
+                }
+            }
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts_direct) as ydl:
+                ydl.download([url])
+                return True
+        except Exception as direct_err:
+            logger.error(f"❌ Direct fallback also failed: {direct_err}")
+            return False
 
-# 🛡️ AUTOMATIC AUTO-EXIT CHECKER
 def check_runtime():
     elapsed_time = time.time() - START_TIME
     if elapsed_time >= MAX_RUN_TIME:
-        logger.info("⏳ 170 minutes over! Safely exiting...")
         sys.exit(0)
 
-# 🚀 WELCOME MESSAGE
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     check_runtime()
     context.user_data['mode'] = None
-    
-    keyboard = [
-        [KeyboardButton("📹 YT VIDEO DOWNLOADER"), KeyboardButton("🎵 AUDIO DOWNLOADER")]
-    ]
+    keyboard = [[KeyboardButton("📹 YT VIDEO DOWNLOADER"), KeyboardButton("🎵 AUDIO DOWNLOADER")]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, input_field_placeholder="Select Mode From Keyboard")
-    
-    await update.message.reply_text(
-        "Hey ! Your Welcome, Give me any youtube video link for Download I will give you the Download link of that video",
-        reply_markup=reply_markup
-    )
+    await update.message.reply_text("Hey ! Your Welcome, Give me any youtube video link...", reply_markup=reply_markup)
 
-# 📥 MAIN MESSAGE HANDLER
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     check_runtime()
     text = update.message.text
@@ -132,7 +148,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
 
         status = await update.message.reply_text("⏳ Fetching fresh SOCKS5 proxy bank...")
-        
         loop = asyncio.get_running_loop()
         socks5_pool = await loop.run_in_executor(None, fetch_socks5_only)
         
@@ -141,28 +156,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
 
         random.shuffle(socks5_pool)
-        # Max 80 proxies tak line se check karega jo ki kaafi bada number hai
         total_to_check = min(len(socks5_pool), 80) 
         
         info = None
         winning_proxy = None
 
-        # 🎯 PURANA SEQUENTIAL LOOP (Ek-ek karke testing)
         for index, proxy in enumerate(socks5_pool[:total_to_check], start=1):
             await status.edit_text(f"⚡ Testing SOCKS5 Route: [{index}/{total_to_check}]...")
-            
             try:
-                # Ek proxy par execution run karo
                 result = await loop.run_in_executor(None, test_single_proxy, text, proxy)
                 if result and (result.get('title') or result.get('formats')):
                     info = result
                     winning_proxy = proxy
-                    break # Asli maza: Connection milte hi loop wahin STOP!
+                    break
             except Exception:
-                continue # Agar fail hui toh bina time waste kiye agli proxy par switch
+                continue
 
         if not info or not winning_proxy:
-            await status.edit_text("❌ Is batch ki saari SOCKS5 proxies busy mili. Dobara link bhejein, fresh pool rotate hoga!")
+            await status.edit_text("❌ Is batch ki saari SOCKS5 proxies busy mili. Dobara link bhejein!")
             return
 
         # 📹 VIDEO MODE
@@ -172,24 +183,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 thumbnail_url = info.get('thumbnail') 
                 formats = info.get('formats', [])
 
-                link_720p = None
-                link_360p = None
-                fallback_url = info.get('url')
+                link_720p, link_360p, fallback_url = None, None, info.get('url')
 
                 for f in formats:
                     if f.get('vcodec') != 'none' and f.get('acodec') != 'none':
                         raw_url = f.get('url')
                         if raw_url:
-                            if f.get('height') == 360:
-                                link_360p = raw_url
-                            elif f.get('height') == 720:
-                                link_720p = raw_url
+                            if f.get('height') == 360: link_360p = raw_url
+                            elif f.get('height') == 720: link_720p = raw_url
 
                 links_text = ""
-                if link_720p:
-                    links_text += f"🔹 <a href='{link_720p}'>👉 CLICK HERE TO DOWNLOAD (HD Quality) 👈</a>\n\n"
-                if link_360p:
-                    links_text += f"🔹 <a href='{link_360p}'>👉 CLICK HERE TO DOWNLOAD (360p SD) 👈</a>\n\n"
+                if link_720p: links_text += f"🔹 <a href='{link_720p}'>👉 CLICK HERE TO DOWNLOAD (HD Quality) 👈</a>\n\n"
+                if link_360p: links_text += f"🔹 <a href='{link_360p}'>👉 CLICK HERE TO DOWNLOAD (360p SD) 👈</a>\n\n"
                 
                 if not link_720p and not link_360p:
                     best_stream = fallback_url
@@ -198,16 +203,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                             if fmt.get('url') and ('googlevideo.com' in fmt.get('url') or 'manifest' in fmt.get('url')):
                                 best_stream = fmt.get('url')
                                 break
-                    if best_stream:
-                        links_text += f"🔹 <a href='{best_stream}'>👉 CLICK HERE TO DOWNLOAD (Best Available Quality) 👈</a>\n\n"
+                    if best_stream: links_text += f"🔹 <a href='{best_stream}'>👉 CLICK HERE TO DOWNLOAD (Best Available Quality) 👈</a>\n\n"
 
                 guide_caption = (
                     f"🎯 <b>Video Title:</b> {video_title}\n\n"
-                    f"👇 <b>VIDEO DOWNLOAD LINKS:</b>\n"
-                    f"{links_text}"
-                    f"📖 <b>DOWNLOAD KAISE KAREIN? (EASY GUIDE):</b>\n"
-                    f"1️⃣ Upar diye gaye blue color ke link text par click karein.\n"
-                    f"2️⃣ Browser mein file open hote hi <b>Long Press</b> karein ya niche right side mein <b>3-dots (...)</b> par click karke <b>Download</b> daba dein! 🚀"
+                    f"👇 <b>VIDEO DOWNLOAD LINKS:</b>\n{links_text}"
+                    f"📖 <b>DOWNLOAD KAISE KAREIN?:</b>\n1️⃣ Upar diye gaye link par click karein.\n2️⃣ Browser mein file open hote hi long press karke download karein! 🚀"
                 )
 
                 await status.delete()
@@ -222,36 +223,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         elif current_mode == 'audio':
             try:
                 video_title = info.get('title', 'Audio File')
-                await status.edit_text("📥 Extracting and downloading audio player via matched SOCKS5...")
+                await status.edit_text("📥 Extracting and streaming audio file safely...")
                 
                 unique_id = random.randint(1000, 9999)
                 expected_file = f"audio_{unique_id}.m4a"
 
-                # Jis sequential proxy se link mila, usi se pure data pipe ka download trigger hoga
-                await loop.run_in_executor(None, download_audio_pipeline, text, winning_proxy, expected_file)
+                # 🛠️ FIX: Runs the smart-pipeline that automatically drops proxies if Errno 104 occurs
+                success = await loop.run_in_executor(None, download_audio_pipeline, text, winning_proxy, expected_file)
 
-                if os.path.exists(expected_file) and os.path.getsize(expected_file) > 0:
+                if success and os.path.exists(expected_file) and os.path.getsize(expected_file) > 0:
                     await status.edit_text("📤 Uploading audio to chat...")
                     with open(expected_file, 'rb') as audio_file:
                         await update.message.reply_audio(audio=audio_file, title=video_title, performer="Yt Downloader")
                     await status.delete()
                 else:
-                    await status.edit_text("⚠️ Connection dropped during download. please re-send link!")
+                    await status.edit_text("❌ Audio stream timed out on both proxy and fallback networks. Re-send link!")
                 
-                if os.path.exists(expected_file):
-                    os.remove(expected_file)
-
+                if os.path.exists(expected_file): os.remove(expected_file)
             except Exception as e:
                 await status.edit_text(f"❌ Audio processing error: {e}")
     else:
-        await update.message.reply_text("Bhai, sahi YouTube link bhejo ya keyboard se option select karo!")
+        await update.message.reply_text("Bhai, sahi YouTube link bhejo!")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).concurrent_updates(True).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    print("Bot is starting with Old-School Sequential SOCKS5 Engine V44...")
+    print("Bot is starting with Bulletproof Audio Fallback Engine V45...")
     app.run_polling()
 
 if __name__ == "__main__":
